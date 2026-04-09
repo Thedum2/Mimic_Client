@@ -470,7 +470,7 @@ export class SessionManager {
 
     this.setSnapshot({
       ...this.snapshot,
-      runtimeReadyNotified: Boolean(data.unityReady),
+      runtimeReadyNotified: true,
       activeRoomId: data.roomId ?? this.snapshot.activeRoomId,
     })
   }
