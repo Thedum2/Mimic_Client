@@ -1117,6 +1117,8 @@ button:disabled * {
   border: 0;
   outline: 0;
   background: #06090d;
+  pointer-events: auto;
+  touch-action: none;
 }
 
 .unity-runtime__overlay {
