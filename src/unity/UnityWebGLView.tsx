@@ -12,6 +12,13 @@ interface UnityWebGLViewProps {
 
 let pendingUnityUnload: Promise<void> = Promise.resolve();
 
+function disableGlobalUnityKeyboardCapture() {
+  const webGLInput = (window as unknown as { WebGLInput?: { captureAllKeyboardInput?: boolean } }).WebGLInput;
+  if (webGLInput && typeof webGLInput.captureAllKeyboardInput === "boolean") {
+    webGLInput.captureAllKeyboardInput = false;
+  }
+}
+
 function syncCanvasSize(canvas: HTMLCanvasElement) {
   const host = canvas.parentElement;
   const rect = (host ?? canvas).getBoundingClientRect();
@@ -92,6 +99,7 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
 
         unityWebGLTransport.attach(unityInstance);
         setUnityInstance(unityInstance);
+        disableGlobalUnityKeyboardCapture();
         setUnityShellState({
           status: "ready",
           progress: 1,

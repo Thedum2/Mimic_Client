@@ -245,7 +245,7 @@ export default function Welcome() {
   }
 
   return (
-    <main className="relative z-40 flex min-h-screen w-full flex-col items-center justify-center p-5">
+    <main className="pointer-events-auto relative z-40 flex min-h-screen w-full flex-col items-center justify-center p-5">
       {ribbonConfigs.map((config) => (
         <RibbonOverlay
           key={config.text}

@@ -88,8 +88,14 @@ export default function Lobby() {
   const participants = useMemo<ParticipantListItem[]>(() => {
     if (session.participants.length > 0) {
       return session.participants.map((participant) => ({
+        // Unity placeholder("host") is replaced with local nickname for a readable host label.
         id: participant.playerId,
-        name: participant.playerNickname || participant.playerId,
+        name:
+          (participant.isHost &&
+          nickname &&
+          /^host$/i.test((participant.playerNickname || participant.playerId || "").trim()))
+            ? nickname
+            : (participant.playerNickname || participant.playerId),
         badgeLabel: participant.isHost ? "방장" : undefined,
       }));
     }
@@ -202,7 +208,7 @@ export default function Lobby() {
   }
 
   return (
-    <main className="relative h-screen overflow-hidden p-3">
+    <main className="pointer-events-none relative h-screen overflow-hidden p-3">
       <div className="pointer-events-none mx-auto flex h-full w-full max-w-[1600px] flex-col gap-3 overflow-hidden">
         <header className="pointer-events-auto flex shrink-0 flex-col gap-3 rounded-[24px] bg-black/35 px-5 py-4 backdrop-blur-md lg:flex-row lg:items-center lg:justify-between">
           <div>
