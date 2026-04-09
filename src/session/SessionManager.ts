@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react'
 import { BaseMessageHandler } from '@/bridge/BaseMessageHandler'
 import type { BridgeManager } from '@/bridge/BridgeManager'
 import type { BridgeMessage } from '@/bridge/model'
+import { BRIDGE_ROUTES } from '@/bridge/interface'
 import { parseRoute } from '@/bridge/route'
 
 type Listener = () => void
@@ -88,18 +89,6 @@ interface LobbyChatMessageReceivedNotifyData {
   message?: LobbyChatMessagePayload
 }
 
-interface LobbyChatHistoryNotifyData {
-  roomId?: string
-  messages?: LobbyChatMessagePayload[]
-}
-
-interface LobbyChatSystemNotifyData {
-  roomId?: string
-  eventType?: string
-  messageText?: string
-  createdAt?: string
-}
-
 function createPlayerId() {
   return `player_${Math.random().toString(36).slice(2, 10)}`
 }
@@ -119,11 +108,15 @@ function createInitialSnapshot(): SessionSnapshot {
   }
 }
 
-function parseTimestamp(timestamp: string) {
+function parseTimestamp(timestamp: string | number | undefined): string {
+  if (timestamp == null) {
+    return fallbackTime()
+  }
+
   const numeric = Number(timestamp)
   const asIso = Number.isFinite(numeric) && `${numeric}`.length >= 12
     ? new Date(numeric).toISOString()
-    : timestamp
+    : String(timestamp)
 
   return new Date(asIso).toLocaleTimeString('en-US', {
     hour: '2-digit',
@@ -132,7 +125,7 @@ function parseTimestamp(timestamp: string) {
   })
 }
 
-function fallbackTime() {
+function fallbackTime(): string {
   return parseTimestamp(new Date().toISOString())
 }
 
@@ -150,9 +143,16 @@ class MatchManagerNotifyHandler extends BaseMessageHandler {
   }
 
   override handleNotify(message: BridgeMessage) {
-    const { action } = parseRoute(message.route)
+    const parsed = parseRoute(message.route)
+    const normalizedAction = parsed.action.toLowerCase()
+    const routeContainsRuntimeReady = message.route
+      .toLowerCase()
+      .includes('runtimeready'.toLowerCase())
 
-    if (action === 'RuntimeReady') {
+    if (
+      (parsed.manager === 'MatchManager' && normalizedAction === 'runtimeready') ||
+      routeContainsRuntimeReady
+    ) {
       this.manager.handleRuntimeReadyNotify(message.data as RuntimeReadyNotifyData)
     }
   }
@@ -169,18 +169,6 @@ class LobbyChatManagerNotifyHandler extends BaseMessageHandler {
     if (action === 'MessageReceived') {
       this.manager.handleLobbyChatMessageReceived(
         message.data as LobbyChatMessageReceivedNotifyData,
-      )
-    }
-
-    if (action === 'HistoryUpdated') {
-      this.manager.handleLobbyChatHistoryUpdated(
-        message.data as LobbyChatHistoryNotifyData,
-      )
-    }
-
-    if (action === 'SystemMessage') {
-      this.manager.handleLobbyChatSystemMessage(
-        message.data as LobbyChatSystemNotifyData,
       )
     }
   }
@@ -261,7 +249,7 @@ export class SessionManager {
   }
 
   requestMatchRoom() {
-    if (this.snapshot.lobbyEntryMode === 'create' && !this.snapshot.runtimeReadyNotified) {
+    if (!this.snapshot.runtimeReadyNotified) {
       return
     }
 
@@ -297,7 +285,7 @@ export class SessionManager {
 
     try {
       const ack = await this.bridgeManager.sendRequest(
-        'MatchManager_CreateRoom',
+        BRIDGE_ROUTES.MatchManager_CreateRoom,
         {
           hostPlayerId: this.snapshot.playerId,
           hostPlayerName: this.snapshot.playerName,
@@ -306,7 +294,6 @@ export class SessionManager {
           region: 'KR',
           isPrivate: true,
         },
-        10000,
       )
 
       const ackData = ack.data as CreateRoomAckData
@@ -361,13 +348,12 @@ export class SessionManager {
 
     try {
       const ack = await this.bridgeManager.sendRequest(
-        'MatchManager_JoinRoomByInviteCode',
+        BRIDGE_ROUTES.MatchManager_JoinRoomByInviteCode,
         {
           playerId: this.snapshot.playerId,
           playerName: this.snapshot.playerName,
           inviteCode: this.snapshot.activeInviteCode,
         },
-        10000,
       )
 
       const ackData = ack.data as JoinRoomAckData
@@ -420,7 +406,7 @@ export class SessionManager {
     const clientMessageId = `client_msg_${Date.now()}`
     try {
       const ack = await this.bridgeManager.sendRequest(
-        'LobbyChatManager_SubmitMessage',
+        BRIDGE_ROUTES.LobbyChatManager_SubmitMessage,
         {
           roomId: this.snapshot.activeRoomId,
           senderPlayerId: this.snapshot.playerId,
@@ -428,7 +414,6 @@ export class SessionManager {
           messageText: trimmedText,
           clientMessageId,
         },
-        10000,
       )
 
       const ackData = ack.data as LobbyChatSubmitAckData
@@ -498,45 +483,6 @@ export class SessionManager {
       text: data.message.messageText ?? '',
       createdAt: parseTimestamp(data.message.createdAt ?? new Date().toISOString()),
       kind: toChatKind(data.message.messageType),
-    })
-  }
-
-  handleLobbyChatHistoryUpdated(data: LobbyChatHistoryNotifyData) {
-    if (!this.canHandleRoomScopedEvent(data.roomId)) {
-      return
-    }
-
-    if (this.snapshot.activeRoomId && data.roomId && data.roomId !== this.snapshot.activeRoomId) {
-      return
-    }
-
-    this.setSnapshot({
-      ...this.snapshot,
-      chatMessages: (data.messages ?? []).map((message) => ({
-        id: message.messageId,
-        author: message.senderDisplayName ?? 'UNKNOWN',
-        text: message.messageText ?? '',
-        createdAt: parseTimestamp(message.createdAt ?? new Date().toISOString()),
-        kind: toChatKind(message.messageType),
-      })),
-    })
-  }
-
-  handleLobbyChatSystemMessage(data: LobbyChatSystemNotifyData) {
-    if (!this.canHandleRoomScopedEvent(data.roomId)) {
-      return
-    }
-
-    if (this.snapshot.activeRoomId && data.roomId && data.roomId !== this.snapshot.activeRoomId) {
-      return
-    }
-
-    this.appendChatMessage({
-      id: `system_${Date.now()}`,
-      author: 'SYSTEM',
-      text: data.messageText ?? '',
-      createdAt: parseTimestamp(data.createdAt ?? new Date().toISOString()),
-      kind: 'system',
     })
   }
 

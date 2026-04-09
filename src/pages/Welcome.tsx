@@ -8,7 +8,7 @@ import { ImprovedToastContainer } from "@/components/modals/ImprovedToast";
 import TwoButtonPopup from "@/components/modals/TwoButtonPopup";
 import RibbonOverlay from "@/components/RibbonOverlay";
 import type { Step, StepExtra } from "@/types/common";
-import { buildLoadingPath } from "@/routes/paths";
+import { buildLobbyPath } from "@/routes/paths";
 import { useUIStore } from "@/stores/uiStore";
 import logoImage from "@/assets/logo.png";
 import step1Image from "@/assets/step1.png";
@@ -228,7 +228,7 @@ export default function Welcome() {
       inviteCode: nextCode,
     };
 
-    navigate(buildLoadingPath(mode, nextCode), { state });
+    navigate(`${buildLobbyPath(nextCode)}?mode=${mode}`, { state });
   }
 
   function openCreateRoomPopup() {

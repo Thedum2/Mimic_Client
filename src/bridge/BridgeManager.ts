@@ -1,8 +1,11 @@
 import type { MessageHandler, MessageSender } from '@/bridge/BaseMessageHandler'
-import type { BridgeMessage, MessageDirection, MessageType, RuntimeLogEntry } from '@/bridge/model'
+import { BRIDGE_REQUEST_TIMEOUT_MS } from '@/bridge/model'
+import type { BridgeMessage, MessageDirection, MessageEndpoint, MessageType, RuntimeLogEntry } from '@/bridge/model'
 import type { BridgeTransport } from '@/bridge/transport'
+import { isMessageDirection, isMessageType, parseRoute } from '@/bridge/route'
 
 interface PendingRequest {
+  route: string
   resolve: (message: BridgeMessage) => void
   reject: (error: Error) => void
   timeoutId: ReturnType<typeof setTimeout>
@@ -26,7 +29,6 @@ export class BridgeManager {
   private transport: BridgeTransport | null = null
   private unsubscribeTransport: (() => void) | null = null
   private initialized = false
-  private idIndex = 0
 
   private readonly sender: MessageSender = {
     request: (route, data, timeoutMs) => this.sendRequest(route, data, timeoutMs),
@@ -87,7 +89,7 @@ export class BridgeManager {
     this.emit()
   }
 
-  async sendRequest(route: string, data: unknown, timeoutMs = 5_000) {
+  async sendRequest(route: string, data: unknown, timeoutMs = BRIDGE_REQUEST_TIMEOUT_MS) {
     const message = this.createMessage('REQ', 'R2U', route, data, true)
 
     const promise = new Promise<BridgeMessage>((resolve, reject) => {
@@ -96,7 +98,12 @@ export class BridgeManager {
         reject(new Error(`Request timed out for ${route}`))
       }, timeoutMs)
 
-      this.pendingRequests.set(message.id, { resolve, reject, timeoutId })
+      this.pendingRequests.set(message.id, {
+        route: message.route,
+        resolve,
+        reject,
+        timeoutId,
+      })
     })
 
     this.sendMessage(message)
@@ -108,18 +115,25 @@ export class BridgeManager {
   }
 
   receiveMessage(message: BridgeMessage) {
-    this.logInterfaceMessage('receive', message)
-    this.pushLog(message.direction, `${message.type} ${message.route}`, JSON.stringify(message.data))
+    const normalizedMessage = this.normalizeIncomingMessage(message)
+    const logDirection = normalizedMessage.direction ?? this.getDirectionFromEndpoints(normalizedMessage.from, normalizedMessage.to)
 
-    switch (message.type) {
+    this.logInterfaceMessage('receive', normalizedMessage)
+    this.pushLog(
+      logDirection ?? 'system',
+      `${normalizedMessage.type} ${normalizedMessage.route}`,
+      JSON.stringify(normalizedMessage),
+    )
+
+    switch (normalizedMessage.type) {
       case 'REQ':
-        this.handleRequest(message.route, message)
+        this.handleRequest(normalizedMessage)
         break
       case 'ACK':
-        this.handleAcknowledge(message)
+        this.handleAcknowledge(normalizedMessage)
         break
       case 'NTY':
-        this.handleNotify(message.route, message)
+        this.handleNotify(normalizedMessage)
         break
     }
 
@@ -127,7 +141,72 @@ export class BridgeManager {
   }
 
   receiveSerializedMessage(payload: string) {
-    this.receiveMessage(JSON.parse(payload) as BridgeMessage)
+    let parsed: unknown
+
+    try {
+      parsed = JSON.parse(payload)
+    } catch (error) {
+      this.pushLog('system', 'Failed to parse bridge payload', String(error))
+      return
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      this.pushLog('system', 'Invalid bridge payload shape', String(parsed))
+      return
+    }
+
+    const route = (parsed as { route?: unknown }).route
+    const messageType = (parsed as { type?: unknown }).type
+    const messageId = (parsed as { id?: unknown }).id
+    const ok = (parsed as { ok?: unknown }).ok
+    const from = (parsed as { from?: unknown }).from
+    const to = (parsed as { to?: unknown }).to
+    const direction = (parsed as { direction?: unknown }).direction
+    const timestamp = (parsed as { timestamp?: unknown }).timestamp
+
+    if (typeof route !== 'string' || !isMessageType(messageType) || !route) {
+      this.pushLog('system', 'Invalid bridge message envelope', JSON.stringify(parsed))
+      return
+    }
+
+    if (ok !== undefined && typeof ok !== 'boolean') {
+      this.pushLog('system', 'Invalid bridge message envelope', JSON.stringify(parsed))
+      return
+    }
+
+    const parsedRoute = parseRoute(route)
+    const normalizedRoute = parsedRoute.route || parsedRoute.manager || route.trim()
+    if (!normalizedRoute) {
+      this.pushLog('system', 'Invalid bridge message envelope', JSON.stringify(parsed))
+      return
+    }
+
+    const messageFrom = this.toEndpoint(from)
+    const messageTo = this.toEndpoint(to)
+    const providedDirection = isMessageDirection(direction) ? direction : undefined
+    const expectedEndpoints = providedDirection
+      ? this.getEndpointsFromDirection(providedDirection)
+      : this.getEndpointsFromDirection(this.getDefaultDirection(messageType))
+
+    this.receiveMessage({
+      ...(parsed as Omit<BridgeMessage, 'direction' | 'route' | 'from' | 'to' | 'type' | 'id' | 'ok' | 'timestamp'>),
+      id:
+        typeof messageId === 'string' && messageId.trim().length > 0
+          ? messageId.trim()
+          : this.createMessageId(),
+      direction: providedDirection,
+      from: messageFrom ?? expectedEndpoints.from,
+      to: messageTo ?? expectedEndpoints.to,
+      ok: ok ?? true,
+      route: normalizedRoute,
+      type: messageType,
+      timestamp: this.normalizeTimestamp(timestamp),
+    })
+  }
+
+  clearLogs() {
+    this.logs.splice(0)
+    this.emit()
   }
 
   getLogs() {
@@ -142,11 +221,12 @@ export class BridgeManager {
     this.receiveMessage(this.createMessage(type, 'R2U', route, data, true, id))
   }
 
-  private handleRequest(routeName: string, message: BridgeMessage) {
-    const handler = this.handlers.get(routeName)
+  private handleRequest(message: BridgeMessage) {
+    const handler = this.handlers.get(this.getHandlerKey(message.route))
 
     if (!handler) {
-      this.sendAcknowledge(message.id, message.route, false, { error: `No handler for ${routeName}` })
+      this.pushLog('system', 'No bridge handler found for route', message.route)
+      this.sendAcknowledge(message.id, message.route, false, { error: `No handler for ${message.route}` })
       return
     }
 
@@ -158,25 +238,43 @@ export class BridgeManager {
   }
 
   private handleAcknowledge(message: BridgeMessage) {
-    const pending = this.pendingRequests.get(message.id)
+    const pending =
+      this.pendingRequests.get(message.id) ??
+      this.findPendingByRoute(message.route)
 
     if (!pending) {
+      this.pushLog('system', 'Unknown ACK (no pending request)', JSON.stringify(message))
       return
     }
 
     clearTimeout(pending.timeoutId)
-    this.pendingRequests.delete(message.id)
+    this.deletePendingRequest(pending)
 
     if (message.ok) {
       pending.resolve(message)
       return
     }
 
-    pending.reject(new Error(String((message.data as { error?: string } | null)?.error ?? 'Unknown bridge error')))
+    const data = message.data as { error?: unknown } | null
+    const error = data?.error
+    const errorText =
+      typeof error === 'string'
+        ? error
+        : error != null
+          ? JSON.stringify(error)
+          : 'Unknown bridge error'
+
+    pending.reject(new Error(errorText))
   }
 
-  private handleNotify(routeName: string, message: BridgeMessage) {
-    this.handlers.get(routeName)?.handleNotify(message)
+  private handleNotify(message: BridgeMessage) {
+    const handler = this.handlers.get(this.getHandlerKey(message.route))
+    if (!handler) {
+      this.pushLog('system', 'No bridge handler found for route', message.route)
+      return
+    }
+
+    handler.handleNotify(message)
   }
 
   private sendAcknowledge(requestId: string, route: string, ok: boolean, data: unknown) {
@@ -184,26 +282,36 @@ export class BridgeManager {
   }
 
   private sendMessage(message: BridgeMessage) {
-    this.logInterfaceMessage('send', message)
-    this.pushLog(message.direction, `${message.type} ${message.route}`, JSON.stringify(message.data))
+    const wireMessage = this.toWireMessage(message)
+    this.logInterfaceMessage('send', wireMessage)
+    this.pushLog(
+      message.direction ?? this.getDefaultDirection(message.type),
+      `${message.type} ${message.route}`,
+      JSON.stringify(wireMessage),
+    )
 
     if (!this.transport) {
+      this.pushLog('system', 'Bridge transport not initialized', JSON.stringify(message))
       throw new Error('Bridge transport not initialized')
     }
 
-    this.transport.send(JSON.stringify(message))
+    this.transport.send(JSON.stringify(wireMessage))
     this.emit()
   }
 
   private createMessage(type: MessageType, direction: MessageDirection, route: string, data: unknown, ok: boolean, customId?: string): BridgeMessage {
+    const normalizedRoute = parseRoute(route)
+    const routeName = normalizedRoute.route || normalizedRoute.manager || route.trim()
+
     return {
-      id: customId ?? `${direction}-${++this.idIndex}`,
+      id: customId ?? this.createMessageId(),
       type,
-      direction,
-      route,
+      route: routeName,
       data,
       ok,
-      timestamp: new Date().toISOString(),
+      timestamp: Date.now(),
+      from: direction === 'R2U' ? 'R' : 'U',
+      to: direction === 'R2U' ? 'U' : 'R',
     }
   }
 
@@ -221,7 +329,10 @@ export class BridgeManager {
     }
   }
 
-  private logInterfaceMessage(phase: 'send' | 'receive', message: BridgeMessage) {
+  private logInterfaceMessage(
+    phase: 'send' | 'receive',
+    message: Omit<BridgeMessage, 'direction'> & { direction?: MessageDirection },
+  ) {
     const direction =
       message.direction ??
       (message.type === 'REQ'
@@ -233,8 +344,119 @@ export class BridgeManager {
     console.log(
       '[REACT][interface]',
       `${phase.toUpperCase()} ${direction} ${message.type} ${message.route}`,
-      message.data,
+      message,
     )
+  }
+
+  private normalizeIncomingMessage(message: BridgeMessage) {
+    const messageRoute = message.route.trim()
+    const parsedRoute = parseRoute(messageRoute)
+    const normalizedRoute = parsedRoute.route || parsedRoute.manager || messageRoute
+    const providedDirection = isMessageDirection(message.direction) ? message.direction : undefined
+    const endpoints = providedDirection
+      ? this.getEndpointsFromDirection(providedDirection)
+      : this.getEndpointsFromDirection(this.getDefaultDirection(message.type))
+
+    return {
+      ...message,
+      direction: providedDirection,
+      route: normalizedRoute,
+      from: this.toEndpoint(message.from) ?? endpoints.from,
+      to: this.toEndpoint(message.to) ?? endpoints.to,
+      timestamp: this.normalizeTimestamp(message.timestamp),
+    }
+  }
+
+  private isMessageEndpoint(value: unknown): value is MessageEndpoint {
+    return value === 'R' || value === 'U'
+  }
+
+  private getDirectionFromEndpoints(
+    from: MessageEndpoint | undefined,
+    to: MessageEndpoint | undefined,
+  ) {
+    if (from === 'R' && to === 'U') {
+      return 'R2U' as const
+    }
+
+    if (from === 'U' && to === 'R') {
+      return 'U2R' as const
+    }
+
+    return undefined
+  }
+
+  private getDefaultDirection(type: MessageType): MessageDirection {
+    return type === 'REQ' ? 'R2U' : type === 'ACK' ? 'U2R' : 'U2R'
+  }
+
+  private getEndpointsFromDirection(direction: MessageDirection) {
+    return direction === 'R2U' ? { from: 'R' as const, to: 'U' as const } : { from: 'U' as const, to: 'R' as const }
+  }
+
+  private toEndpoint(value: unknown): MessageEndpoint | undefined {
+    return this.isMessageEndpoint(value) ? value : undefined
+  }
+
+  private normalizeTimestamp(timestamp: unknown) {
+    if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
+      return timestamp
+    }
+
+    if (typeof timestamp === 'string' && timestamp.trim().length > 0) {
+      const numeric = Number(timestamp)
+      if (Number.isFinite(numeric)) {
+        return numeric
+      }
+
+      const parsed = Date.parse(timestamp)
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+
+    return Date.now()
+  }
+
+  private getHandlerKey(routeName: string) {
+    const parsed = parseRoute(routeName)
+    const candidates = [routeName, parsed.route, parsed.manager].filter(Boolean)
+
+    for (const candidate of candidates) {
+      if (this.handlers.has(candidate)) {
+        return candidate
+      }
+    }
+
+    return parsed.route || parsed.manager || routeName
+  }
+
+  private createMessageId() {
+    return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+  }
+
+  private findPendingByRoute(route: string) {
+    for (const pending of this.pendingRequests.values()) {
+      if (pending.route === route) {
+        return pending
+      }
+    }
+
+    return null
+  }
+
+  private deletePendingRequest(target: PendingRequest) {
+    for (const [id, pending] of this.pendingRequests.entries()) {
+      if (pending === target) {
+        this.pendingRequests.delete(id)
+        return
+      }
+    }
+  }
+
+  private toWireMessage(message: BridgeMessage) {
+    const { direction: _direction, ...wireMessage } = message
+    return wireMessage
   }
 
   private emit() {
