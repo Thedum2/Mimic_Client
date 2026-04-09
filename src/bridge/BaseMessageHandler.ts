@@ -10,6 +10,7 @@ export interface MessageHandler {
   getRoute(): string
   bindSender(sender: MessageSender): void
   handleRequest(message: BridgeMessage, onSuccess: (data: unknown) => void, onError: (error: string) => void): void
+  handleAcknowledge(message: BridgeMessage): void
   handleNotify(message: BridgeMessage): void
 }
 
@@ -39,6 +40,8 @@ export abstract class BaseMessageHandler implements MessageHandler {
   }
 
   handleRequest(_message: BridgeMessage, _onSuccess: (data: unknown) => void, _onError: (error: string) => void) {}
+
+  handleAcknowledge(_message: BridgeMessage) {}
 
   handleNotify(_message: BridgeMessage) {}
 }

@@ -4,13 +4,26 @@ import { BaseMessageHandler } from '@/bridge/BaseMessageHandler'
 import type { BridgeManager } from '@/bridge/BridgeManager'
 import type { BridgeMessage } from '@/bridge/model'
 import { BRIDGE_ROUTES } from '@/bridge/interface'
+import type {
+  BridgeError,
+  ChatMessage,
+  LobbyChatMessageReceivedNotify,
+  LobbyChatSubmitMessageAck,
+  LobbyChatSubmitMessageRequest,
+  LobbyChatSystemMessageNotify,
+  MatchManagerCreateRoomAck,
+  MatchManagerCreateRoomRequest,
+  MatchManagerJoinRoomAck,
+  MatchManagerJoinRoomRequest,
+  MatchManagerRuntimeReadyNotify,
+  PlayerBase,
+} from '@/bridge/interface'
 import { parseRoute } from '@/bridge/route'
 
 type Listener = () => void
 type LobbyEntryMode = 'create' | 'join'
 type CreateRoomStatus = 'idle' | 'requesting' | 'ready' | 'error'
 type ChatKind = 'user' | 'system'
-type ChatMessageType = 'USER' | 'SYSTEM'
 
 export interface LobbyChatMessageRecord {
   id: string
@@ -31,6 +44,7 @@ interface SessionSnapshot {
   createRoomError: string | null
   createRoomRequested: boolean
   runtimeReadyNotified: boolean
+  participants: PlayerBase[]
   chatMessages: LobbyChatMessageRecord[]
 }
 
@@ -44,49 +58,12 @@ interface StageJoinRoomInput {
   playerName: string
 }
 
-interface CreateRoomAckData {
-  result?: boolean
-  roomId?: string
-  inviteCode?: string
-}
-
-interface JoinRoomAckData {
-  result?: boolean
-  roomId?: string
-  joinedPlayerCount?: number
-  error?: {
-    code?: string
-    message?: string
-    retryable?: boolean
-  }
-}
-
-interface RuntimeReadyNotifyData {
-  roomId?: string
-  unityReady?: boolean
-  sceneName?: string
-}
-
 interface LobbyChatSubmitAckData {
   result?: boolean
   roomId?: string
   clientMessageId?: string
-  messageId?: string
-  recordedAt?: string
-}
-
-interface LobbyChatMessagePayload {
-  messageId: string
-  senderPlayerId?: string
-  senderDisplayName?: string
-  messageText?: string
-  messageType?: ChatMessageType
-  createdAt?: string
-}
-
-interface LobbyChatMessageReceivedNotifyData {
-  roomId?: string
-  message?: LobbyChatMessagePayload
+  message?: ChatMessage
+  error?: BridgeError
 }
 
 function createPlayerId() {
@@ -104,6 +81,7 @@ function createInitialSnapshot(): SessionSnapshot {
     createRoomError: null,
     createRoomRequested: false,
     runtimeReadyNotified: false,
+    participants: [],
     chatMessages: [],
   }
 }
@@ -129,12 +107,96 @@ function fallbackTime(): string {
   return parseTimestamp(new Date().toISOString())
 }
 
-function toChatKind(messageType: string | undefined): ChatKind {
-  return messageType === 'SYSTEM' ? 'system' : 'user'
+function toUserFacingBridgeError(error: BridgeError | undefined, fallback: string) {
+  if (!error?.code) {
+    return error?.message ?? fallback
+  }
+
+  switch (error.code) {
+    case 'ROOM_NOT_FOUND':
+      return 'Room not found. Please check invite code and try again.'
+    case 'ROOM_FULL':
+      return 'Room is full. Please try another room.'
+    case 'RUNTIME_NOT_READY':
+      return 'Runtime is not ready yet. Please try again shortly.'
+    case 'INVALID_ARGUMENT':
+      return error.message || 'Request payload is invalid.'
+    case 'NOT_INITIALIZED':
+      return 'Runtime is not initialized yet. Please retry.'
+    case 'TIMEOUT':
+      return 'Request timed out. Please retry.'
+    case 'INTERNAL_ERROR':
+      return 'A server error occurred. Please retry.'
+    default:
+      return error.message || fallback
+  }
 }
 
-function normalizeInviteCode(code: string) {
-  return code.trim().toUpperCase()
+function parseBridgeErrorFromUnknown(error: unknown): BridgeError | undefined {
+  if (error == null) {
+    return undefined
+  }
+
+  if (typeof error === 'string') {
+    const trimmed = error.trim()
+    if (!trimmed) {
+      return undefined
+    }
+
+    try {
+      return parseBridgeErrorValue(JSON.parse(trimmed))
+    } catch {
+      return undefined
+    }
+  }
+
+  if (typeof error === 'object') {
+    const asRecord = error as Record<string, unknown>
+    return parseBridgeErrorValue(
+      typeof asRecord.error === 'object' && asRecord.error !== null
+        ? (asRecord.error as Record<string, unknown>)
+        : asRecord,
+    )
+  }
+
+  if (!(error instanceof Error)) {
+    return undefined
+  }
+
+  const trimmed = error.message.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  try {
+    return parseBridgeErrorValue(JSON.parse(trimmed))
+  } catch {
+    // noop
+  }
+
+  return undefined
+}
+
+function parseBridgeErrorValue(value: Record<string, unknown>) {
+  const code = value?.code
+  const message = value?.message
+
+  if (typeof code === 'string' && typeof message === 'string') {
+    return {
+      code,
+      message,
+      retryable:
+        typeof value.retryable === 'boolean'
+          ? value.retryable
+          : undefined,
+      details:
+        typeof value.details === 'object' && value.details !== null
+          ? (value.details as Record<string, unknown>)
+          : undefined,
+    } as BridgeError
+  }
+
+  return undefined
 }
 
 class MatchManagerNotifyHandler extends BaseMessageHandler {
@@ -153,7 +215,7 @@ class MatchManagerNotifyHandler extends BaseMessageHandler {
       (parsed.manager === 'MatchManager' && normalizedAction === 'runtimeready') ||
       routeContainsRuntimeReady
     ) {
-      this.manager.handleRuntimeReadyNotify(message.data as RuntimeReadyNotifyData)
+      this.manager.handleRuntimeReadyNotify(message.data as MatchManagerRuntimeReadyNotify)
     }
   }
 }
@@ -168,7 +230,21 @@ class LobbyChatManagerNotifyHandler extends BaseMessageHandler {
 
     if (action === 'MessageReceived') {
       this.manager.handleLobbyChatMessageReceived(
-        message.data as LobbyChatMessageReceivedNotifyData,
+        message.data as LobbyChatMessageReceivedNotify,
+      )
+      return
+    }
+
+    if (action === 'SystemMessage') {
+      this.manager.handleLobbyChatSystemMessage(message.data as LobbyChatSystemMessageNotify)
+    }
+  }
+
+  override handleAcknowledge(message: BridgeMessage) {
+    const { action } = parseRoute(message.route)
+    if (action === 'SubmitMessage') {
+      this.manager.handleLobbyChatSubmitAcknowledge(
+        message.data as LobbyChatSubmitMessageAck,
       )
     }
   }
@@ -214,7 +290,7 @@ export class SessionManager {
 
   stageCreateRoom(input: StageCreateRoomInput) {
     const playerName = input.playerName.trim()
-    const normalizedInviteCode = normalizeInviteCode(input.inviteCode)
+    const normalizedInviteCode = input.inviteCode.trim().toUpperCase()
 
     this.setSnapshot({
       ...this.snapshot,
@@ -226,13 +302,15 @@ export class SessionManager {
       createRoomStatus: 'idle',
       createRoomError: null,
       createRoomRequested: false,
+      runtimeReadyNotified: false,
+      participants: [],
       chatMessages: [],
     })
   }
 
   stageJoinRoom(input: StageJoinRoomInput) {
     const playerName = input.playerName.trim()
-    const normalizedInviteCode = normalizeInviteCode(input.inviteCode)
+    const normalizedInviteCode = input.inviteCode.trim().toUpperCase()
 
     this.setSnapshot({
       ...this.snapshot,
@@ -244,6 +322,8 @@ export class SessionManager {
       createRoomStatus: 'idle',
       createRoomError: null,
       createRoomRequested: false,
+      runtimeReadyNotified: false,
+      participants: [],
       chatMessages: [],
     })
   }
@@ -260,7 +340,6 @@ export class SessionManager {
 
     if (this.snapshot.lobbyEntryMode === 'join') {
       void this.requestJoinRoom()
-      return
     }
   }
 
@@ -284,29 +363,46 @@ export class SessionManager {
     })
 
     try {
+      const requestPayload: MatchManagerCreateRoomRequest = {
+        hostPlayer: {
+          playerId: this.snapshot.playerId,
+          playerNickname: this.snapshot.playerName,
+          isHost: true,
+        },
+        roomCode: this.snapshot.activeInviteCode,
+        maxPlayerCount: 10,
+        region: 'KR',
+        isPrivate: true,
+      }
       const ack = await this.bridgeManager.sendRequest(
         BRIDGE_ROUTES.MatchManager_CreateRoom,
-        {
-          hostPlayerId: this.snapshot.playerId,
-          hostPlayerName: this.snapshot.playerName,
-          roomCode: this.snapshot.activeInviteCode,
-          maxPlayerCount: 10,
-          region: 'KR',
-          isPrivate: true,
-        },
+        requestPayload,
       )
 
-      const ackData = ack.data as CreateRoomAckData
+      const ackData = ack.data as MatchManagerCreateRoomAck
       if (ackData.result === false) {
         this.setSnapshot({
           ...this.snapshot,
           createRoomStatus: 'error',
-          createRoomError:
+          createRoomError: toUserFacingBridgeError(
+            ackData.error,
             'Create room request failed. Please try again in a moment.',
+          ),
           createRoomRequested: false,
         })
         return
       }
+
+      const nextParticipants =
+        ackData.participants && ackData.participants.length > 0
+          ? ackData.participants
+          : [
+              {
+                playerId: this.snapshot.playerId,
+                playerNickname: this.snapshot.playerName,
+                isHost: true,
+              },
+            ]
 
       this.setSnapshot({
         ...this.snapshot,
@@ -314,13 +410,20 @@ export class SessionManager {
         activeInviteCode: ackData.inviteCode ?? this.snapshot.activeInviteCode,
         createRoomStatus: 'ready',
         createRoomError: null,
+        createRoomRequested: false,
+        participants: nextParticipants,
       })
     } catch (error) {
+      const bridgeError = parseBridgeErrorFromUnknown(error)
       this.setSnapshot({
         ...this.snapshot,
         createRoomStatus: 'error',
-        createRoomError:
-          error instanceof Error
+        createRoomError: bridgeError
+          ? toUserFacingBridgeError(
+              bridgeError,
+              'Create room request failed. Please try again in a moment.',
+            )
+          : error instanceof Error
             ? error.message
             : 'Create room request failed. Please try again in a moment.',
         createRoomRequested: false,
@@ -347,23 +450,28 @@ export class SessionManager {
     })
 
     try {
+      const requestPayload: MatchManagerJoinRoomRequest = {
+        player: {
+          playerId: this.snapshot.playerId,
+          playerNickname: this.snapshot.playerName,
+          isHost: false,
+        },
+        inviteCode: this.snapshot.activeInviteCode,
+      }
       const ack = await this.bridgeManager.sendRequest(
         BRIDGE_ROUTES.MatchManager_JoinRoomByInviteCode,
-        {
-          playerId: this.snapshot.playerId,
-          playerName: this.snapshot.playerName,
-          inviteCode: this.snapshot.activeInviteCode,
-        },
+        requestPayload,
       )
 
-      const ackData = ack.data as JoinRoomAckData
+      const ackData = ack.data as MatchManagerJoinRoomAck
       if (ackData.result === false) {
         this.setSnapshot({
           ...this.snapshot,
           createRoomStatus: 'error',
-          createRoomError:
-            ackData.error?.message ??
+          createRoomError: toUserFacingBridgeError(
+            ackData.error,
             'Join room request failed. Please check invite code and retry.',
+          ),
           createRoomRequested: false,
         })
         return
@@ -374,13 +482,20 @@ export class SessionManager {
         activeRoomId: ackData.roomId ?? this.snapshot.activeRoomId,
         createRoomStatus: 'ready',
         createRoomError: null,
+        createRoomRequested: false,
+        participants: ackData.participants ?? this.snapshot.participants,
       })
     } catch (error) {
+      const bridgeError = parseBridgeErrorFromUnknown(error)
       this.setSnapshot({
         ...this.snapshot,
         createRoomStatus: 'error',
-        createRoomError:
-          error instanceof Error
+        createRoomError: bridgeError
+          ? toUserFacingBridgeError(
+              bridgeError,
+              'Join room request failed. Please check invite code and retry.',
+            )
+          : error instanceof Error
             ? error.message
             : 'Join room request failed. Please check invite code and retry.',
         createRoomRequested: false,
@@ -404,50 +519,90 @@ export class SessionManager {
     }
 
     const clientMessageId = `client_msg_${Date.now()}`
+    const requestPayload: LobbyChatSubmitMessageRequest = {
+      roomId: this.snapshot.activeRoomId,
+      sender: {
+        playerId: this.snapshot.playerId,
+        playerNickname: this.snapshot.playerName,
+        isHost: false,
+      },
+      message: {
+        messageId: `msg_${Date.now()}`,
+        senderPlayerId: this.snapshot.playerId,
+        senderPlayerNickname: this.snapshot.playerName,
+        messageText: trimmedText,
+        createdAt: new Date().toISOString(),
+      },
+      clientMessageId,
+    }
+
     try {
       const ack = await this.bridgeManager.sendRequest(
         BRIDGE_ROUTES.LobbyChatManager_SubmitMessage,
-        {
-          roomId: this.snapshot.activeRoomId,
-          senderPlayerId: this.snapshot.playerId,
-          senderDisplayName: this.snapshot.playerName,
-          messageText: trimmedText,
-          clientMessageId,
-        },
+        requestPayload,
       )
-
-      const ackData = ack.data as LobbyChatSubmitAckData
-      if (ackData.result === false) {
-        this.appendChatMessage({
-          id: `system_${Date.now()}`,
-          author: 'SYSTEM',
-          text: 'Send message failed. Please retry.',
-          createdAt: fallbackTime(),
-          kind: 'system',
-        })
-        return
-      }
-
-      this.appendChatMessage({
-        id: ackData.messageId ?? clientMessageId,
-        author: this.snapshot.playerName || 'Me',
-        text: trimmedText,
-        createdAt: parseTimestamp(ackData.recordedAt ?? new Date().toISOString()),
-        kind: 'user',
-        clientMessageId,
-      })
-    } catch {
+      this.handleLobbyChatSubmitAcknowledge(ack.data as LobbyChatSubmitMessageAck)
+    } catch (error) {
+      const bridgeError = parseBridgeErrorFromUnknown(error)
       this.appendChatMessage({
         id: `system_${Date.now()}`,
         author: 'SYSTEM',
-        text: 'Failed to send lobby message.',
+        text: bridgeError
+          ? toUserFacingBridgeError(
+              bridgeError,
+              'Failed to send lobby message.',
+            )
+          : 'Failed to send lobby message.',
         createdAt: fallbackTime(),
         kind: 'system',
       })
     }
   }
 
-  handleRuntimeReadyNotify(data: RuntimeReadyNotifyData) {
+  handleLobbyChatSubmitAcknowledge(data: LobbyChatSubmitAckData) {
+    if (!this.canHandleRoomScopedEvent(data.roomId)) {
+      return
+    }
+
+    if (data.result === false) {
+      this.appendChatMessage({
+        id: `system_${Date.now()}`,
+        author: 'SYSTEM',
+        text: toUserFacingBridgeError(
+          data.error,
+          'Send message failed. Please retry.',
+        ),
+        createdAt: parseTimestamp(
+          data.message?.createdAt ?? new Date().toISOString(),
+        ),
+        kind: 'system',
+      })
+    }
+  }
+
+  handleLobbyChatSystemMessage(data: LobbyChatSystemMessageNotify) {
+    if (!this.canHandleRoomScopedEvent(data.roomId)) {
+      return
+    }
+
+    if (!data.message) {
+      return
+    }
+
+    this.appendChatMessage({
+      id: `system_msg_${Date.now()}`,
+      author: 'SYSTEM',
+      text: data.message,
+      createdAt: parseTimestamp(new Date().toISOString()),
+      kind: 'system',
+    })
+  }
+
+  handleRuntimeReadyNotify(data: MatchManagerRuntimeReadyNotify) {
+    if (data.unityReady !== true) {
+      return
+    }
+
     if (
       this.snapshot.activeRoomId &&
       data.roomId &&
@@ -464,7 +619,7 @@ export class SessionManager {
     })
   }
 
-  handleLobbyChatMessageReceived(data: LobbyChatMessageReceivedNotifyData) {
+  handleLobbyChatMessageReceived(data: LobbyChatMessageReceivedNotify) {
     if (!this.canHandleRoomScopedEvent(data.roomId)) {
       return
     }
@@ -473,16 +628,30 @@ export class SessionManager {
       return
     }
 
-    if (this.snapshot.activeRoomId && data.roomId && data.roomId !== this.snapshot.activeRoomId) {
+    if (
+      this.snapshot.activeRoomId &&
+      data.roomId &&
+      data.roomId !== this.snapshot.activeRoomId
+    ) {
       return
     }
 
+    console.log('[CHAT_NTY_RECEIVED]', {
+      route: BRIDGE_ROUTES.LobbyChatManager_MessageReceived,
+      roomId: data.roomId,
+      messageId: data.message.messageId,
+      senderPlayerId: data.message.senderPlayerId,
+      senderPlayerNickname: data.message.senderPlayerNickname,
+      createdAt: data.message.createdAt,
+      messageText: data.message.messageText,
+    })
+
     this.appendChatMessage({
       id: data.message.messageId,
-      author: data.message.senderDisplayName ?? 'UNKNOWN',
+      author: data.message.senderPlayerNickname ?? 'UNKNOWN',
       text: data.message.messageText ?? '',
       createdAt: parseTimestamp(data.message.createdAt ?? new Date().toISOString()),
-      kind: toChatKind(data.message.messageType),
+      kind: 'user',
     })
   }
 
