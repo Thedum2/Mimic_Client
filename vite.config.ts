@@ -1,4 +1,5 @@
-import { Plugin, defineConfig } from "vite";
+import { defineConfig } from "vite";
+import type { Connect, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import path from "path";
@@ -7,7 +8,7 @@ import svgr from "vite-plugin-svgr";
 const forceUtf8TextHeaders = (): Plugin => ({
   name: "force-utf8-text-headers",
   configureServer(server) {
-    const middleware: Parameters<typeof server.middlewares.use>[0] = (req, res, next) => {
+    const middleware: Connect.NextHandleFunction = (_req, res, next) => {
       const originalSetHeader = res.setHeader.bind(res);
 
       (res as any).setHeader = (name: string, value: unknown) => {
@@ -32,7 +33,7 @@ const forceUtf8TextHeaders = (): Plugin => ({
     server.middlewares.use(middleware);
   },
   configurePreviewServer(server) {
-    const middleware: Parameters<typeof server.middlewares.use>[0] = (req, res, next) => {
+    const middleware: Connect.NextHandleFunction = (_req, res, next) => {
       const originalSetHeader = res.setHeader.bind(res);
 
       (res as any).setHeader = (name: string, value: unknown) => {

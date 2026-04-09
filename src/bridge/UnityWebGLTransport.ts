@@ -9,12 +9,21 @@ class UnityWebGLTransport implements BridgeTransport {
   constructor() {
     window.dispatchReactUnityEvent = (eventNameOrPayload: string, payload?: string) => {
       const nextPayload = typeof payload === 'string' ? payload : eventNameOrPayload
+      if (typeof nextPayload !== 'string' || nextPayload.length === 0) {
+        return
+      }
+
       this.emit(nextPayload)
     }
+
+    this.flushQueuedMessages()
+
+    window.addEventListener('unity-bridge-message', this.handleUnityBridgeEvent as EventListener)
   }
 
   attach(instance: UnityInstance) {
     this.unityInstance = instance
+    this.flushQueuedMessages()
   }
 
   detach() {
@@ -31,6 +40,7 @@ class UnityWebGLTransport implements BridgeTransport {
 
   subscribe(listener: (payload: string) => void) {
     this.listeners.add(listener)
+    this.flushQueuedMessages()
 
     return () => {
       this.listeners.delete(listener)
@@ -41,6 +51,30 @@ class UnityWebGLTransport implements BridgeTransport {
     this.listeners.forEach((listener) => {
       listener(payload)
     })
+  }
+
+  private flushQueuedMessages() {
+    const queue = window.__reactBridgeQueue
+    if (!Array.isArray(queue) || queue.length === 0) {
+      return
+    }
+
+    const buffered = queue.splice(0, queue.length)
+    buffered.forEach((entry) => {
+      if (entry && typeof entry.payload === 'string' && entry.payload.length > 0) {
+        this.emit(entry.payload)
+      }
+    })
+  }
+
+  private handleUnityBridgeEvent = (event: Event) => {
+    const customEvent = event as CustomEvent<string>
+    const payload = customEvent?.detail
+    if (typeof payload !== 'string' || payload.length === 0) {
+      return
+    }
+
+    this.emit(payload)
   }
 }
 

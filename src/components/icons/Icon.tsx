@@ -17,7 +17,7 @@ const eagerModules = import.meta.glob('../../assets/svg/**/*.svg', {
 
 type LazyReg = Record<string, () => Promise<{ default: SVGRComponent }>>
 type EagerReg = Record<string, SVGRComponent>
-type LucideCandidate = React.ComponentType<React.ComponentProps<'svg'>> & {
+type LucideCandidate = React.ComponentType<LucideProps> & {
   $$typeof?: symbol
   render?: unknown
 }
@@ -91,7 +91,7 @@ export default function Icon({
   mode = 'lazy',
   style,
   ...rest
-}: IconProps & { type?: 'auto' | 'lucide' | 'custom' }) {
+}: Omit<IconProps, 'type'> & { type?: 'auto' | 'lucide' | 'custom' }) {
   const iconName = normalizeIconName(name)
 
   if (!iconName) {

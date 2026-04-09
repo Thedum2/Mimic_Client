@@ -1,8 +1,8 @@
 import type { RouteObject } from 'react-router-dom'
 import Welcome from '@/pages/Welcome'
 import Lobby from '@/pages/Lobby'
-import LoadingScene from '@/pages/LoadingScene'
 import ModalTest from '@/pages/ModalTest'
+import UnityBridgeTest from '@/pages/UnityBridgeTest'
 
 import AppLayout from '@/layouts/AppLayout'
 import { PATHS } from './paths'
@@ -20,12 +20,12 @@ export const routes: RouteObject[] = [
         element: <Lobby />,
       },
       {
-        path: PATHS.loading,
-        element: <LoadingScene />,
-      },
-      {
         path: PATHS.modalTest,
         element: <ModalTest />,
+      },
+      {
+        path: PATHS.unityBridgeTest,
+        element: <UnityBridgeTest />,
       },
     ],
   },

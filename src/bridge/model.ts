@@ -1,14 +1,19 @@
 export type MessageType = 'REQ' | 'ACK' | 'NTY'
 export type MessageDirection = 'R2U' | 'U2R'
+export type MessageEndpoint = 'R' | 'U'
+
+export const BRIDGE_REQUEST_TIMEOUT_MS = 5_000
 
 export interface BridgeMessage<TData = unknown> {
   id: string
   type: MessageType
-  direction: MessageDirection
+  direction?: MessageDirection
   route: string
   data: TData
   ok: boolean
-  timestamp: string
+  timestamp: number
+  from: MessageEndpoint
+  to: MessageEndpoint
 }
 
 export interface PlayerRecord {
