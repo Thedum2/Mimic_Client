@@ -17,7 +17,8 @@ function buildUnityStageStyle(mode: 'hidden' | 'loading' | 'lobby', lobbyRect: {
       borderRadius: '0px',
       overflow: 'hidden' as const,
       display: 'block',
-      pointerEvents: 'auto' as const,
+      pointerEvents: 'none' as const,
+      opacity: 0,
     }
   }
 
@@ -38,10 +39,11 @@ function buildUnityStageStyle(mode: 'hidden' | 'loading' | 'lobby', lobbyRect: {
       overflow: 'hidden' as const,
       display: 'block',
       pointerEvents: 'auto' as const,
+      opacity: 1,
     }
   }
 
-  return { display: 'none' as const }
+  return { display: 'none' as const, opacity: 0 }
 }
 
 export default function AppLayout() {
@@ -83,6 +85,7 @@ export default function AppLayout() {
             overflow: unityStyle.overflow,
             display: unityStyle.display,
             pointerEvents: unityStyle.pointerEvents,
+            opacity: unityStyle.opacity,
           }}
         >
           <UnityWebGLView className="h-full w-full" />

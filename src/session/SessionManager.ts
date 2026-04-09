@@ -44,6 +44,8 @@ interface SessionSnapshot {
   createRoomError: string | null
   createRoomRequested: boolean
   runtimeReadyNotified: boolean
+  runtimeReadyAt: number
+  entryStagedAt: number
   participants: PlayerBase[]
   chatMessages: LobbyChatMessageRecord[]
 }
@@ -81,6 +83,8 @@ function createInitialSnapshot(): SessionSnapshot {
     createRoomError: null,
     createRoomRequested: false,
     runtimeReadyNotified: false,
+    runtimeReadyAt: 0,
+    entryStagedAt: 0,
     participants: [],
     chatMessages: [],
   }
@@ -303,6 +307,8 @@ export class SessionManager {
       createRoomError: null,
       createRoomRequested: false,
       runtimeReadyNotified: false,
+      runtimeReadyAt: this.snapshot.runtimeReadyAt,
+      entryStagedAt: Date.now(),
       participants: [],
       chatMessages: [],
     })
@@ -323,6 +329,8 @@ export class SessionManager {
       createRoomError: null,
       createRoomRequested: false,
       runtimeReadyNotified: false,
+      runtimeReadyAt: this.snapshot.runtimeReadyAt,
+      entryStagedAt: Date.now(),
       participants: [],
       chatMessages: [],
     })
@@ -330,6 +338,9 @@ export class SessionManager {
 
   requestMatchRoom() {
     if (!this.snapshot.runtimeReadyNotified) {
+      return
+    }
+    if (this.snapshot.runtimeReadyAt < this.snapshot.entryStagedAt) {
       return
     }
 
@@ -598,14 +609,15 @@ export class SessionManager {
     })
   }
 
-  handleRuntimeReadyNotify(data: MatchManagerRuntimeReadyNotify) {
-    if (data.unityReady !== true) {
+  handleRuntimeReadyNotify(data: MatchManagerRuntimeReadyNotify | null | undefined) {
+    // Some Unity builds send RuntimeReady with empty data. Treat missing flag as ready.
+    if (data?.unityReady === false) {
       return
     }
 
     if (
       this.snapshot.activeRoomId &&
-      data.roomId &&
+      data?.roomId &&
       data.roomId !== this.snapshot.activeRoomId &&
       this.snapshot.createRoomStatus === 'ready'
     ) {
@@ -615,7 +627,8 @@ export class SessionManager {
     this.setSnapshot({
       ...this.snapshot,
       runtimeReadyNotified: true,
-      activeRoomId: data.roomId ?? this.snapshot.activeRoomId,
+      runtimeReadyAt: Date.now(),
+      activeRoomId: data?.roomId ?? this.snapshot.activeRoomId,
     })
   }
 
