@@ -35,3 +35,8 @@ src/
 
 ## NOTES
 - If implementation grows, the next likely AGENTS split points are `bridge/` and `session/`.
+
+## CODE SAFETY CHECKS
+- Keep string literals in source files valid UTF-8 with correct closing quotes.
+- For bridge logs, verify `type`, `route`, `from`, `to`, and `direction` stay aligned with envelope data.
+- Do a quick parser sanity check after editing JSX string state lines (e.g., `useState('...')`) to prevent Vite transform parse errors.
