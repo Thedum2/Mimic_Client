@@ -10,13 +10,34 @@ interface UnityWebGLViewProps {
   className?: string;
 }
 
+let pendingUnityUnload: Promise<void> = Promise.resolve();
+
+function syncCanvasSize(canvas: HTMLCanvasElement) {
+  const host = canvas.parentElement;
+  const rect = (host ?? canvas).getBoundingClientRect();
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const nextWidth = Math.max(1, Math.floor(rect.width * dpr));
+  const nextHeight = Math.max(1, Math.floor(rect.height * dpr));
+
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+
+  if (canvas.width !== nextWidth) {
+    canvas.width = nextWidth;
+  }
+
+  if (canvas.height !== nextHeight) {
+    canvas.height = nextHeight;
+  }
+}
+
 export function UnityWebGLView({ className }: UnityWebGLViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const setUnityShellState = useUnityStore((state) => state.setUnityShellState);
   const setUnityInstance = useUnityStore((state) => state.setUnityInstance);
   const resetUnityShellState = useUnityStore((state) => state.resetUnityShellState);
   const baseClassName =
-    "unity-runtime flex h-full min-h-0 flex-col border-0 bg-transparent p-0 shadow-none";
+    "unity-runtime unity-runtime--flush flex h-full min-h-0 flex-col border-0 bg-transparent p-0 shadow-none";
   const viewClassName = className
     ? `${baseClassName} ${className}`
     : baseClassName;
@@ -24,6 +45,8 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
   useEffect(() => {
     let cancelled = false;
     let unityInstance: UnityInstance | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let windowResizeHandler: (() => void) | null = null;
 
     resetUnityShellState();
 
@@ -32,6 +55,12 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
         return;
       }
 
+      await pendingUnityUnload;
+      if (cancelled || !canvasRef.current) {
+        return;
+      }
+
+      syncCanvasSize(canvasRef.current);
       setUnityShellState({
         status: "loading",
         progress: 0,
@@ -68,6 +97,27 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
           progress: 1,
           errorMessage: null,
         });
+
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const handleResize = () => {
+            if (!cancelled && canvasRef.current) {
+              syncCanvasSize(canvasRef.current);
+            }
+          };
+
+          if (typeof ResizeObserver !== "undefined") {
+            resizeObserver = new ResizeObserver(handleResize);
+            resizeObserver.observe(canvas);
+            if (canvas.parentElement) {
+              resizeObserver.observe(canvas.parentElement);
+            }
+          }
+
+          windowResizeHandler = handleResize;
+          window.addEventListener("resize", windowResizeHandler);
+          handleResize();
+        }
       } catch (error) {
         if (!cancelled) {
           const nextErrorMessage =
@@ -87,10 +137,14 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
 
     return () => {
       cancelled = true;
+      if (windowResizeHandler) {
+        window.removeEventListener("resize", windowResizeHandler);
+      }
+      resizeObserver?.disconnect();
       unityWebGLTransport.detach();
       setUnityInstance(null);
       resetUnityShellState();
-      void unloadUnityWebGL(unityInstance);
+      pendingUnityUnload = unloadUnityWebGL(unityInstance).catch(() => {});
     };
   }, [setUnityShellState]);
 
