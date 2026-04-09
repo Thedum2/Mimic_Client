@@ -222,9 +222,17 @@ export class BridgeManager {
   }
 
   private logInterfaceMessage(phase: 'send' | 'receive', message: BridgeMessage) {
+    const direction =
+      message.direction ??
+      (message.type === 'REQ'
+        ? 'R2U'
+        : message.type === 'ACK'
+          ? 'U2R'
+          : 'U2R')
+
     console.log(
       '[REACT][interface]',
-      `${phase.toUpperCase()} ${message.direction} ${message.type} ${message.route}`,
+      `${phase.toUpperCase()} ${direction} ${message.type} ${message.route}`,
       message.data,
     )
   }
