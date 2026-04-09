@@ -58,9 +58,10 @@ export default function LoadingScene() {
       ),
     [lobbyState?.inviteCode, routeRoomId, session.activeInviteCode],
   );
+  const normalizedNickname = useMemo(() => nickname.trim(), [nickname]);
 
   useEffect(() => {
-    if (!nickname) {
+    if (!normalizedNickname) {
       return;
     }
 
@@ -76,21 +77,21 @@ export default function LoadingScene() {
         } satisfies WelcomeRouteState,
       });
     }
-  }, [inviteCode, mode, navigate, nickname]);
+  }, [inviteCode, mode, navigate, normalizedNickname]);
 
   useEffect(() => {
     if (mode === "join" && !INVITE_CODE_PATTERN.test(inviteCode)) {
       return;
     }
 
-    if (!inviteCode || !nickname) {
+    if (!inviteCode || !normalizedNickname) {
       return;
     }
 
     if (
       session.lobbyEntryMode === mode &&
       session.activeInviteCode === inviteCode &&
-      session.playerName === nickname
+      session.playerName === normalizedNickname
     ) {
       return;
     }
@@ -98,19 +99,19 @@ export default function LoadingScene() {
     if (mode === "join") {
       sessionManager.stageJoinRoom({
         inviteCode,
-        playerName: nickname,
+        playerName: normalizedNickname,
       });
       return;
     }
 
     sessionManager.stageCreateRoom({
       inviteCode,
-      playerName: nickname,
+      playerName: normalizedNickname,
     });
   }, [
     inviteCode,
     mode,
-    nickname,
+    normalizedNickname,
     session.lobbyEntryMode,
     session.activeInviteCode,
     session.playerName,
@@ -122,7 +123,7 @@ export default function LoadingScene() {
       return;
     }
 
-    if (!session.runtimeReadyNotified || !inviteCode || !nickname) {
+    if (!session.runtimeReadyNotified || !inviteCode || !normalizedNickname) {
       return;
     }
 
@@ -133,17 +134,17 @@ export default function LoadingScene() {
     if (
       session.lobbyEntryMode !== mode ||
       session.activeInviteCode !== inviteCode ||
-      session.playerName !== nickname
+      session.playerName !== normalizedNickname
     ) {
       if (mode === "join") {
         sessionManager.stageJoinRoom({
           inviteCode,
-          playerName: nickname,
+          playerName: normalizedNickname,
         });
       } else {
         sessionManager.stageCreateRoom({
           inviteCode,
-          playerName: nickname,
+          playerName: normalizedNickname,
         });
       }
 
@@ -153,14 +154,14 @@ export default function LoadingScene() {
     console.log("[REACT][interface]", `TRIGGER R2U REQ MatchManager_${mode === "join" ? "JoinRoomByInviteCode" : "CreateRoom"}`, {
       mode,
       inviteCode,
-      playerName: nickname,
+      playerName: normalizedNickname,
     });
 
     void sessionManager.requestMatchRoom();
   }, [
     inviteCode,
     mode,
-    nickname,
+    normalizedNickname,
     session.lobbyEntryMode,
     session.activeInviteCode,
     session.playerName,
@@ -186,7 +187,7 @@ export default function LoadingScene() {
         },
       } satisfies WelcomeRouteState,
     });
-  }, [mode, navigate, session.createRoomError, session.createRoomStatus, nickname]);
+  }, [mode, navigate, session.createRoomError, session.createRoomStatus, normalizedNickname]);
 
   useEffect(() => {
     if (session.createRoomStatus !== "ready" || !session.runtimeReadyNotified) {
@@ -214,7 +215,7 @@ export default function LoadingScene() {
     navigate,
   ]);
 
-  if (!inviteCode || !nickname) {
+  if (!inviteCode || !normalizedNickname) {
     return (
       <main className="fixed inset-0 z-40 overflow-hidden bg-black p-6 text-white">
         <section className="w-full max-w-lg rounded-[24px] border border-white/20 bg-black/70 p-6 text-center">
