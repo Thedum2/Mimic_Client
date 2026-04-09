@@ -9,7 +9,7 @@ import TwoButtonPopup from "@/components/modals/TwoButtonPopup";
 import RibbonOverlay from "@/components/RibbonOverlay";
 import type { Step, StepExtra } from "@/types/common";
 import { buildLoadingPath } from "@/routes/paths";
-import { useUIStore } from "@/state/uiStore";
+import { useUIStore } from "@/stores/uiStore";
 import logoImage from "@/assets/logo.png";
 import step1Image from "@/assets/step1.png";
 import step2Image from "@/assets/step2.png";

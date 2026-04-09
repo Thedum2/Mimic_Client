@@ -1,7 +1,5 @@
 import { create } from 'zustand'
 
-export type UnityStatus = 'idle' | 'loading' | 'ready' | 'error'
-
 export interface UIState {
   isBackgroundVisible: boolean
   activeCharacterIndex: number
@@ -10,9 +8,6 @@ export interface UIState {
   roomCode: string
   roundDuration: number
   stepsCurrentIndex: number
-  unityProgress: number
-  unityStatus: UnityStatus
-  unityErrorMessage: string | null
 }
 
 export interface UIActions {
@@ -23,7 +18,6 @@ export interface UIActions {
   setRoomCode: (next: string) => void
   setRoundDuration: (next: number) => void
   setStepsCurrentIndex: (next: number) => void
-  setUnityShellState: (next: Partial<Pick<UIState, 'unityProgress' | 'unityStatus' | 'unityErrorMessage'>>) => void
 }
 
 export type UIStore = UIState & UIActions
@@ -36,9 +30,6 @@ const createInitialState: UIState = {
   roomCode: '',
   roundDuration: 45,
   stepsCurrentIndex: 0,
-  unityProgress: 0,
-  unityStatus: 'idle',
-  unityErrorMessage: null,
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -63,13 +54,5 @@ export const useUIStore = create<UIStore>((set) => ({
   },
   setStepsCurrentIndex(next) {
     set({ stepsCurrentIndex: next })
-  },
-  setUnityShellState(next) {
-    set((state) => ({
-      ...next,
-      unityProgress: next.unityProgress ?? state.unityProgress,
-      unityStatus: next.unityStatus ?? state.unityStatus,
-      unityErrorMessage: next.unityErrorMessage ?? state.unityErrorMessage,
-    }))
   },
 }))

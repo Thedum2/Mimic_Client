@@ -1,10 +1,9 @@
 import { useEffect, useRef } from "react";
 
 import { unityWebGLTransport } from "@/bridge/UnityWebGLTransport";
-import { runtimeStore } from "@/state/runtimeStore";
-import { useUIStore } from "@/state/uiStore";
 import { loadUnityWebGL, unloadUnityWebGL } from "@/unity/loadUnityWebGL";
 import { createUnityConfig } from "@/unity/unityConfig";
+import { useUnityStore } from "@/stores/unityStore";
 import type { UnityInstance } from "@/types/unity-webgl";
 
 interface UnityWebGLViewProps {
@@ -13,7 +12,9 @@ interface UnityWebGLViewProps {
 
 export function UnityWebGLView({ className }: UnityWebGLViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const setUnityShellState = useUIStore((state) => state.setUnityShellState);
+  const setUnityShellState = useUnityStore((state) => state.setUnityShellState);
+  const setUnityInstance = useUnityStore((state) => state.setUnityInstance);
+  const resetUnityShellState = useUnityStore((state) => state.resetUnityShellState);
   const baseClassName =
     "unity-runtime flex h-full min-h-0 flex-col border-0 bg-transparent p-0 shadow-none";
   const viewClassName = className
@@ -24,16 +25,7 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
     let cancelled = false;
     let unityInstance: UnityInstance | null = null;
 
-    runtimeStore.setUnityShellState({
-      status: "idle",
-      progress: 0,
-      errorMessage: null,
-    });
-    setUnityShellState({
-      unityStatus: "idle",
-      unityProgress: 0,
-      unityErrorMessage: null,
-    });
+    resetUnityShellState();
 
     async function mountUnity() {
       if (!canvasRef.current) {
@@ -41,11 +33,6 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
       }
 
       setUnityShellState({
-        unityStatus: "loading",
-        unityProgress: 0,
-        unityErrorMessage: null,
-      });
-      runtimeStore.setUnityShellState({
         status: "loading",
         progress: 0,
         errorMessage: null,
@@ -57,15 +44,14 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
           createUnityConfig((message, type) => {
             if (type === "error") {
               setUnityShellState({
-                unityErrorMessage: message,
-                unityStatus: "error",
+                status: "error",
+                errorMessage: message,
               });
             }
           }),
           (nextProgress) => {
             if (!cancelled) {
-              setUnityShellState({ unityProgress: nextProgress });
-              runtimeStore.setUnityShellState({ progress: nextProgress });
+              setUnityShellState({ progress: nextProgress });
             }
           },
         );
@@ -76,12 +62,8 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
         }
 
         unityWebGLTransport.attach(unityInstance);
+        setUnityInstance(unityInstance);
         setUnityShellState({
-          unityStatus: "ready",
-          unityProgress: 1,
-          unityErrorMessage: null,
-        });
-        runtimeStore.setUnityShellState({
           status: "ready",
           progress: 1,
           errorMessage: null,
@@ -94,10 +76,6 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
               : "Failed to load Unity WebGL build";
 
           setUnityShellState({
-            unityStatus: "error",
-            unityErrorMessage: nextErrorMessage,
-          });
-          runtimeStore.setUnityShellState({
             status: "error",
             errorMessage: nextErrorMessage,
           });
@@ -110,16 +88,8 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
     return () => {
       cancelled = true;
       unityWebGLTransport.detach();
-      setUnityShellState({
-        unityStatus: "idle",
-        unityProgress: 0,
-        unityErrorMessage: null,
-      });
-      runtimeStore.setUnityShellState({
-        status: "idle",
-        progress: 0,
-        errorMessage: null,
-      });
+      setUnityInstance(null);
+      resetUnityShellState();
       void unloadUnityWebGL(unityInstance);
     };
   }, [setUnityShellState]);

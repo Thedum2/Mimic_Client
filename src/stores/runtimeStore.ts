@@ -5,7 +5,6 @@ import type { SessionManager } from '@/session/SessionManager'
 
 export type RoomEntryMode = 'create' | 'invite' | 'rejoin'
 export type RoomShellStatus = 'lobby-formed' | 'runtime-loading' | 'runtime-ready' | 'runtime-error'
-export type UnityShellStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export interface RoomShellRecord {
   roomId: string
@@ -21,27 +20,12 @@ export interface RoomShellRecord {
   memoryOnly: boolean
 }
 
-export interface UnityShellState {
-  status: UnityShellStatus
-  progress: number
-  errorMessage: string | null
-}
-
 interface RuntimeSnapshot {
   activeRoom: RoomShellRecord | null
   lastRoom: RoomShellRecord | null
-  unity: UnityShellState
 }
 
 type Listener = () => void
-
-function createInitialUnityState(): UnityShellState {
-  return {
-    status: 'idle',
-    progress: 0,
-    errorMessage: null,
-  }
-}
 
 function normalizePlayerLabel(value: string) {
   const trimmedValue = value.trim()
@@ -91,20 +75,6 @@ function deriveInviteCodeFromRoomId(roomId: string) {
   return createInviteCode()
 }
 
-function deriveRoomStatus(unityStatus: UnityShellStatus): RoomShellStatus {
-  switch (unityStatus) {
-    case 'loading':
-      return 'runtime-loading'
-    case 'ready':
-      return 'runtime-ready'
-    case 'error':
-      return 'runtime-error'
-    case 'idle':
-    default:
-      return 'lobby-formed'
-  }
-}
-
 function createRoomRecord(room: Omit<RoomShellRecord, 'roomStatus'>): RoomShellRecord {
   return {
     ...room,
@@ -124,8 +94,8 @@ function createFallbackRoom(roomId: string): RoomShellRecord {
     playerLabel: 'Observer-01',
     playerCount: 2,
     playerCapacity: 5,
-    summary: '직접 연 룸 셸입니다. 실제 네트워크 확인 없이 현재 세션 안에서만 복원됩니다.',
-    activityNote: '현재 세션에 남은 방 정보가 없어 경량 셸 메타데이터만 복원했습니다.',
+    summary: '로컬 더미/임시 동작 확인용 룸입니다.',
+    activityNote: '방 입장, 채팅, 룸 전환과 같은 기본 동작 흐름 점검용 데이터입니다.',
     memoryOnly: true,
   })
 }
@@ -135,17 +105,14 @@ class RuntimeStore {
   private snapshot: RuntimeSnapshot = {
     activeRoom: null,
     lastRoom: null,
-    unity: createInitialUnityState(),
   }
 
-  connect(_bridgeManager: BridgeManager, _sessionManager: SessionManager) {
-  }
+  connect(_bridgeManager: BridgeManager, _sessionManager: SessionManager) {}
 
   disconnect() {
     this.setSnapshot({
       activeRoom: null,
       lastRoom: this.snapshot.lastRoom,
-      unity: createInitialUnityState(),
     })
   }
 
@@ -172,8 +139,8 @@ class RuntimeStore {
       playerLabel: normalizedPlayerLabel,
       playerCount: 1,
       playerCapacity: 5,
-      summary: '친구만 초대하는 프라이빗 셸을 만듭니다. 실제 매치 연결 전, 진입 흐름과 상태 표면만 먼저 확인합니다.',
-      activityNote: '로컬 셸 방이 생성되었습니다. 3.1 매치 진입 전까지는 이 메모리 상태만 유지됩니다.',
+      summary: '로컬 디버깅에서 사용하는 기본 템플릿 룸입니다.',
+      activityNote: '게임 실행 전 상태 점검 및 연결 타임아웃 같은 기본 동작을 시험합니다.',
       memoryOnly: true,
     })
 
@@ -193,8 +160,8 @@ class RuntimeStore {
       playerLabel: normalizedPlayerLabel,
       playerCount: 3,
       playerCapacity: 5,
-      summary: '초대 코드로 셸에 합류합니다. 실제 네트워크 입장 대신, 문서 기준의 방 진입 감각만 먼저 이어집니다.',
-      activityNote: '코드 확인 이후에는 로컬 셸 메타데이터만 유지됩니다.',
+      summary: '초대 코드 기반 룸 참가용 테스트 데이터입니다.',
+      activityNote: '입장, 메시지 수신, 참여자 갱신 동작의 예비 경로를 점검합니다.',
       memoryOnly: true,
     })
 
@@ -212,7 +179,7 @@ class RuntimeStore {
       ...this.snapshot.lastRoom,
       entryMode: 'rejoin' as const,
       roomStatus: 'lobby-formed' as const,
-      activityNote: '앱 메모리에 남겨 둔 마지막 룸 셸로 다시 돌아왔습니다.',
+      activityNote: '최근 나갔던 룸 상태로 다시 돌아갑니다.',
       memoryOnly: true,
     }
 
@@ -225,7 +192,6 @@ class RuntimeStore {
     this.setSnapshot({
       activeRoom: null,
       lastRoom: this.snapshot.activeRoom ?? this.snapshot.lastRoom,
-      unity: createInitialUnityState(),
     })
   }
 
@@ -266,30 +232,10 @@ class RuntimeStore {
     return createFallbackRoom(normalizedRoomId)
   }
 
-  setUnityShellState(nextUnityState: Partial<UnityShellState>) {
-    const unity = {
-      ...this.snapshot.unity,
-      ...nextUnityState,
-    }
-    const activeRoom = this.snapshot.activeRoom
-      ? {
-          ...this.snapshot.activeRoom,
-          roomStatus: deriveRoomStatus(unity.status),
-        }
-      : null
-
-    this.setSnapshot({
-      activeRoom,
-      lastRoom: activeRoom ?? this.snapshot.lastRoom,
-      unity,
-    })
-  }
-
   private activateRoom(room: RoomShellRecord) {
     this.setSnapshot({
       activeRoom: room,
       lastRoom: room,
-      unity: createInitialUnityState(),
     })
   }
 
@@ -308,5 +254,9 @@ class RuntimeStore {
 export const runtimeStore = new RuntimeStore()
 
 export function useRuntimeStore() {
-  return useSyncExternalStore(runtimeStore.subscribe, runtimeStore.getSnapshot, runtimeStore.getSnapshot)
+  return useSyncExternalStore(
+    runtimeStore.subscribe,
+    runtimeStore.getSnapshot,
+    runtimeStore.getSnapshot,
+  )
 }

@@ -1,6 +1,7 @@
 import type { RouteObject } from 'react-router-dom'
-import { Welcome, Lobby } from '@/pages/WelcomeLobbyBundle'
-import LoadingScene from '@/pages/WelcomeLobbyBundle/LoadingScene'
+import Welcome from '@/pages/Welcome'
+import Lobby from '@/pages/Lobby'
+import LoadingScene from '@/pages/LoadingScene'
 import ModalTest from '@/pages/ModalTest'
 
 import AppLayout from '@/layouts/AppLayout'

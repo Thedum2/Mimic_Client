@@ -9,7 +9,7 @@ import Icon from "@/components/icons/Icon";
 import { ImprovedToastContainer } from "@/components/modals/ImprovedToast";
 import { SessionBridgeAdapter } from "@/session/SessionBridgeAdapter";
 import { useSessionStore } from "@/session/SessionManager";
-import { useUIStore } from "@/state/uiStore";
+import { useUIStore } from "@/stores/uiStore";
 import type { ParticipantListItem } from "@/types/domain/participant";
 import { UnityWebGLView } from "@/unity/UnityWebGLView";
 

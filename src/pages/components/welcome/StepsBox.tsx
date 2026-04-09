@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
 import type { Step, StepExtra } from '@/types/common'
-import { useUIStore } from '@/state/uiStore'
+import { useUIStore } from '@/stores/uiStore'
 
 interface StepsBoxProps {
   title: string

@@ -1,7 +1,7 @@
 import { BridgeManager } from '@/bridge/BridgeManager'
 import { unityWebGLTransport } from '@/bridge/UnityWebGLTransport'
 import { SessionBridgeAdapter } from '@/session/SessionBridgeAdapter'
-import { runtimeStore } from '@/state/runtimeStore'
+import { runtimeStore } from '@/stores/runtimeStore'
 
 const bridgeManager = BridgeManager.getInstance()
 const bridgeAdapter = SessionBridgeAdapter.getInstance()

@@ -227,6 +227,7 @@ export class SessionManager {
   stageCreateRoom(input: StageCreateRoomInput) {
     const playerName = input.playerName.trim()
     const normalizedInviteCode = normalizeInviteCode(input.inviteCode)
+
     this.setSnapshot({
       ...this.snapshot,
       playerName,
@@ -237,7 +238,6 @@ export class SessionManager {
       createRoomStatus: 'idle',
       createRoomError: null,
       createRoomRequested: false,
-      runtimeReadyNotified: false,
       chatMessages: [],
     })
   }
@@ -256,12 +256,15 @@ export class SessionManager {
       createRoomStatus: 'idle',
       createRoomError: null,
       createRoomRequested: false,
-      runtimeReadyNotified: false,
       chatMessages: [],
     })
   }
 
   requestMatchRoom() {
+    if (this.snapshot.lobbyEntryMode === 'create' && !this.snapshot.runtimeReadyNotified) {
+      return
+    }
+
     if (this.snapshot.lobbyEntryMode === 'create') {
       void this.requestCreateRoom()
       return
@@ -279,7 +282,8 @@ export class SessionManager {
       this.snapshot.createRoomRequested ||
       this.snapshot.lobbyEntryMode !== 'create' ||
       !this.snapshot.activeInviteCode ||
-      this.snapshot.playerName.trim().length === 0
+      this.snapshot.playerName.trim().length === 0 ||
+      !this.snapshot.runtimeReadyNotified
     ) {
       return
     }
