@@ -88,7 +88,7 @@ export default function AppLayout() {
           <UnityWebGLView className="h-full w-full" />
         </div>
       ) : null}
-      <div className="relative z-30 min-h-screen w-full">
+      <div className="pointer-events-none relative z-30 min-h-screen w-full">
         <Outlet />
       </div>
     </div>
