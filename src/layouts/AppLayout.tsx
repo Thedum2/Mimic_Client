@@ -3,7 +3,7 @@ import { Outlet } from 'react-router-dom'
 
 import bgImage from '@/assets/bg.jpg'
 import Background from '@/components/Background'
-import { useUIStore } from '@/state/uiStore'
+import { useUIStore } from '@/stores/uiStore'
 
 export default function AppLayout() {
   const isBackgroundVisible = useUIStore((state) => state.isBackgroundVisible)

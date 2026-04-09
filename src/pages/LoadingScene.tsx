@@ -5,7 +5,8 @@ import Loading from "./Loading";
 import { buildLobbyPath } from "@/routes/paths";
 import { SessionBridgeAdapter } from "@/session/SessionBridgeAdapter";
 import { useSessionStore } from "@/session/SessionManager";
-import { useUIStore } from "@/state/uiStore";
+import { useUIStore } from "@/stores/uiStore";
+import { useUnityStore } from "@/stores/unityStore";
 import { UnityWebGLView } from "@/unity/UnityWebGLView";
 
 type LobbyEntryMode = "create" | "join";
@@ -21,6 +22,43 @@ interface WelcomeRouteState {
     message: string;
     duration?: number;
   };
+}
+
+function LobbyLoadingFallback({
+  roomCode,
+  nickname,
+  createRoomStatus,
+  runtimeReadyNotified,
+}: {
+  roomCode: string
+  nickname: string
+  createRoomStatus: "idle" | "requesting" | "ready" | "error"
+  runtimeReadyNotified: boolean
+}) {
+  return (
+    <section className="absolute inset-3 z-10 rounded-[24px] border border-white/15 bg-black/75 p-5 text-white shadow-2xl backdrop-blur">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-black tracking-[-0.04em]">
+          Lobby
+        </h1>
+        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">
+          Room: {roomCode}
+        </span>
+      </div>
+      <div className="grid gap-2 text-sm text-white/75">
+        <p>Player: {nickname || "Guest"}</p>
+        <p>
+          RuntimeReady: {runtimeReadyNotified ? "received" : "waiting"}
+        </p>
+        <p>
+          Lobby ACK:{" "}
+          {createRoomStatus === "ready"
+            ? "OK"
+            : createRoomStatus.toUpperCase()}
+        </p>
+      </div>
+    </section>
+  );
 }
 
 const INVITE_CODE_PATTERN = /^[A-Z0-9]{5}$/;
@@ -39,9 +77,9 @@ export default function LoadingScene() {
   const navigate = useNavigate();
 
   const nickname = useUIStore((state) => state.nickname);
-  const unityStatus = useUIStore((state) => state.unityStatus);
-  const unityProgress = useUIStore((state) => state.unityProgress);
-  const unityErrorMessage = useUIStore((state) => state.unityErrorMessage);
+  const unityStatus = useUnityStore((state) => state.status);
+  const unityProgress = useUnityStore((state) => state.progress);
+  const unityErrorMessage = useUnityStore((state) => state.errorMessage);
 
   const sessionManager = SessionBridgeAdapter.getInstance().getManager();
   const session = useSessionStore(sessionManager);
@@ -71,7 +109,8 @@ export default function LoadingScene() {
         state: {
           toast: {
             type: "error",
-            message: "珥덈? 肄붾뱶??5?먮━ ?곷Ц ?臾몄옄? ?レ옄 議고빀?댁뼱???⑸땲??",
+            message:
+              "초대코드는 영문 대문자/숫자 조합 5자리로 입력해주세요.",
             duration: 1800,
           },
         } satisfies WelcomeRouteState,
@@ -171,7 +210,7 @@ export default function LoadingScene() {
   ]);
 
   useEffect(() => {
-    if (mode !== "join" || session.createRoomStatus !== "error") {
+    if (session.createRoomStatus !== "error") {
       return;
     }
 
@@ -182,12 +221,12 @@ export default function LoadingScene() {
           type: "error",
           message:
             session.createRoomError ??
-            "諛⑹씠 ?녾굅??諛⑹씠 媛??李⑥꽌 ?낆옣?????놁뒿?덈떎.",
+            "요청이 실패했습니다. 잠시 후 다시 시도해 주세요.",
           duration: 2200,
         },
       } satisfies WelcomeRouteState,
     });
-  }, [mode, navigate, session.createRoomError, session.createRoomStatus, normalizedNickname]);
+  }, [navigate, session.createRoomError, session.createRoomStatus]);
 
   useEffect(() => {
     if (session.createRoomStatus !== "ready" || !session.runtimeReadyNotified) {
@@ -219,9 +258,9 @@ export default function LoadingScene() {
     return (
       <main className="fixed inset-0 z-40 overflow-hidden bg-black p-6 text-white">
         <section className="w-full max-w-lg rounded-[24px] border border-white/20 bg-black/70 p-6 text-center">
-          <p className="text-xl font-black">?낆옣 ?뺣낫瑜??뺤씤?????놁뒿?덈떎.</p>
+          <p className="text-xl font-black">입장 정보가 올바르지 않습니다.</p>
           <p className="mt-2 text-sm text-white/70">
-            ?댁쟾 ?붾㈃?쇰줈 ?뚯븘媛 ?ㅼ떆 ?쒕룄??二쇱꽭??
+            새로고침 후 다시 시도하거나 웰컴 화면으로 돌아가 주세요.
           </p>
         </section>
       </main>
@@ -231,6 +270,14 @@ export default function LoadingScene() {
   return (
     <main className="fixed inset-0 z-40 overflow-hidden bg-black/70">
       <UnityWebGLView className="absolute inset-0 -z-10 opacity-0" />
+      {unityStatus === "error" ? (
+        <LobbyLoadingFallback
+          roomCode={inviteCode}
+          nickname={normalizedNickname}
+          createRoomStatus={session.createRoomStatus}
+          runtimeReadyNotified={session.runtimeReadyNotified}
+        />
+      ) : null}
       <div className="flex h-full items-center justify-center p-4">
         <Loading
           unityStatus={unityStatus}
