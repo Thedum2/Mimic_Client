@@ -15,6 +15,7 @@ import type {
   MatchManagerCreateRoomRequest,
   MatchManagerJoinRoomAck,
   MatchManagerJoinRoomRequest,
+  MatchManagerParticipantPresenceChangedNotify,
   MatchManagerRuntimeReadyNotify,
   PlayerBase,
 } from '@/bridge/interface'
@@ -28,6 +29,7 @@ type ChatKind = 'user' | 'system'
 export interface LobbyChatMessageRecord {
   id: string
   author: string
+  authorPlayerId?: string
   text: string
   createdAt: string
   kind: ChatKind
@@ -46,6 +48,7 @@ interface SessionSnapshot {
   runtimeReadyNotified: boolean
   runtimeReadyAt: number
   entryStagedAt: number
+  maxPlayerCount: number
   participants: PlayerBase[]
   chatMessages: LobbyChatMessageRecord[]
 }
@@ -85,6 +88,7 @@ function createInitialSnapshot(): SessionSnapshot {
     runtimeReadyNotified: false,
     runtimeReadyAt: 0,
     entryStagedAt: 0,
+    maxPlayerCount: 10,
     participants: [],
     chatMessages: [],
   }
@@ -214,12 +218,26 @@ class MatchManagerNotifyHandler extends BaseMessageHandler {
     const routeContainsRuntimeReady = message.route
       .toLowerCase()
       .includes('runtimeready'.toLowerCase())
+    const routeContainsParticipantPresenceChanged = message.route
+      .toLowerCase()
+      .includes('participantpresencechanged'.toLowerCase())
 
     if (
       (parsed.manager === 'MatchManager' && normalizedAction === 'runtimeready') ||
       routeContainsRuntimeReady
     ) {
       this.manager.handleRuntimeReadyNotify(message.data as MatchManagerRuntimeReadyNotify)
+      return
+    }
+
+    if (
+      (parsed.manager === 'MatchManager' &&
+        normalizedAction === 'participantpresencechanged') ||
+      routeContainsParticipantPresenceChanged
+    ) {
+      this.manager.handleParticipantPresenceChangedNotify(
+        message.data as MatchManagerParticipantPresenceChangedNotify,
+      )
     }
   }
 }
@@ -309,6 +327,7 @@ export class SessionManager {
       runtimeReadyNotified: false,
       runtimeReadyAt: this.snapshot.runtimeReadyAt,
       entryStagedAt: Date.now(),
+      maxPlayerCount: 10,
       participants: [],
       chatMessages: [],
     })
@@ -331,6 +350,7 @@ export class SessionManager {
       runtimeReadyNotified: false,
       runtimeReadyAt: this.snapshot.runtimeReadyAt,
       entryStagedAt: Date.now(),
+      maxPlayerCount: 10,
       participants: [],
       chatMessages: [],
     })
@@ -589,6 +609,14 @@ export class SessionManager {
         kind: 'system',
       })
     }
+
+    if (data.message) {
+      this.upsertParticipant({
+        playerId: data.message.senderPlayerId,
+        playerNickname: data.message.senderPlayerNickname,
+        isHost: false,
+      })
+    }
   }
 
   handleLobbyChatSystemMessage(data: LobbyChatSystemMessageNotify) {
@@ -632,6 +660,45 @@ export class SessionManager {
     })
   }
 
+  handleParticipantPresenceChangedNotify(
+    data: MatchManagerParticipantPresenceChangedNotify | null | undefined,
+  ) {
+    if (!data || !this.canHandleRoomScopedEvent(data.roomId)) {
+      return
+    }
+
+    const eventType = String(data.eventType ?? '').toUpperCase()
+    if (eventType !== 'JOIN' && eventType !== 'LEAVE') {
+      return
+    }
+
+    let nextParticipants = this.snapshot.participants
+
+    if (Array.isArray(data.participants)) {
+      nextParticipants = this.sanitizeParticipants(data.participants)
+    } else if (data.participant?.playerId) {
+      if (eventType === 'JOIN') {
+        nextParticipants = this.mergeParticipant(
+          this.snapshot.participants,
+          this.normalizeParticipant(data.participant),
+        )
+      } else {
+        nextParticipants = this.snapshot.participants.filter(
+          (participant) => participant.playerId !== data.participant?.playerId,
+        )
+      }
+    }
+
+    this.setSnapshot({
+      ...this.snapshot,
+      participants: nextParticipants,
+      maxPlayerCount:
+        typeof data.maxPlayerCount === 'number' && data.maxPlayerCount > 0
+          ? data.maxPlayerCount
+          : this.snapshot.maxPlayerCount,
+    })
+  }
+
   handleLobbyChatMessageReceived(data: LobbyChatMessageReceivedNotify) {
     if (!this.canHandleRoomScopedEvent(data.roomId)) {
       return
@@ -662,9 +729,16 @@ export class SessionManager {
     this.appendChatMessage({
       id: data.message.messageId,
       author: data.message.senderPlayerNickname ?? 'UNKNOWN',
+      authorPlayerId: data.message.senderPlayerId,
       text: data.message.messageText ?? '',
       createdAt: parseTimestamp(data.message.createdAt ?? new Date().toISOString()),
       kind: 'user',
+    })
+
+    this.upsertParticipant({
+      playerId: data.message.senderPlayerId,
+      playerNickname: data.message.senderPlayerNickname ?? data.message.senderPlayerId,
+      isHost: false,
     })
   }
 
@@ -683,6 +757,91 @@ export class SessionManager {
       ...this.snapshot,
       chatMessages: [...this.snapshot.chatMessages, nextMessage],
     })
+  }
+
+  private upsertParticipant(next: PlayerBase) {
+    if (!next?.playerId) {
+      return
+    }
+
+    const nextParticipants = this.mergeParticipant(
+      this.snapshot.participants,
+      this.normalizeParticipant(next),
+    )
+
+    this.setSnapshot({
+      ...this.snapshot,
+      participants: nextParticipants,
+    })
+  }
+
+  private mergeParticipant(currentParticipants: PlayerBase[], next: PlayerBase) {
+    const index = currentParticipants.findIndex(
+      (participant) => participant.playerId === next.playerId,
+    )
+
+    if (index < 0) {
+      return [...currentParticipants, next]
+    }
+
+    const current = currentParticipants[index]
+    const merged: PlayerBase = {
+      ...current,
+      playerNickname:
+        next.playerNickname?.trim().length
+          ? next.playerNickname
+          : current.playerNickname,
+      isHost: Boolean(current.isHost || next.isHost),
+    }
+
+    const nextParticipants = [...currentParticipants]
+    nextParticipants[index] = merged
+    return nextParticipants
+  }
+
+  private sanitizeParticipants(participants: PlayerBase[]) {
+    const byId = new Map<string, PlayerBase>()
+    for (const participant of participants) {
+      const normalized = this.normalizeParticipant(participant)
+      if (!normalized.playerId) {
+        continue
+      }
+
+      const current = byId.get(normalized.playerId)
+      if (!current) {
+        byId.set(normalized.playerId, normalized)
+        continue
+      }
+
+      byId.set(
+        normalized.playerId,
+        {
+          ...current,
+          playerNickname:
+            normalized.playerNickname?.trim().length
+              ? normalized.playerNickname
+              : current.playerNickname,
+          isHost: Boolean(current.isHost || normalized.isHost),
+        },
+      )
+    }
+
+    return [...byId.values()]
+  }
+
+  private normalizeParticipant(participant: PlayerBase): PlayerBase {
+    const playerId = participant.playerId?.trim() ?? ''
+    const fallbackName = playerId || 'UNKNOWN'
+    const playerNickname =
+      participant.playerNickname?.trim().length
+        ? participant.playerNickname.trim()
+        : fallbackName
+
+    return {
+      playerId,
+      playerNickname,
+      isHost: Boolean(participant.isHost),
+    }
   }
 
   private canHandleRoomScopedEvent(roomId?: string) {

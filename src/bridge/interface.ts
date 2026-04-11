@@ -5,6 +5,7 @@ export const BRIDGE_ROUTES = {
   MatchManager_JoinRoomByInviteCode: 'MatchManager_JoinRoomByInviteCode',
   MatchManager_RejoinRoom: 'MatchManager_RejoinRoom',
   MatchManager_RuntimeReady: 'MatchManager_RuntimeReady',
+  MatchManager_ParticipantPresenceChanged: 'MatchManager_ParticipantPresenceChanged',
   ConversationManager_OpenConversation: 'ConversationManager_OpenConversation',
   LobbyChatManager_SubmitMessage: 'LobbyChatManager_SubmitMessage',
   LobbyChatManager_MessageReceived: 'LobbyChatManager_MessageReceived',
@@ -90,6 +91,17 @@ export interface MatchManagerRuntimeReadyNotify {
   roomId?: string
   unityReady: boolean
   sceneName: string
+}
+
+export type MatchManagerParticipantPresenceEventType = 'JOIN' | 'LEAVE'
+
+export interface MatchManagerParticipantPresenceChangedNotify {
+  roomId: string
+  eventType: MatchManagerParticipantPresenceEventType
+  participant?: PlayerBase
+  participants?: PlayerBase[]
+  joinedPlayerCount?: number
+  maxPlayerCount?: number
 }
 
 export interface ChatMessage {
