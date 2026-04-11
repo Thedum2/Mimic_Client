@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 
 import heroImage from "@/assets/hero.png";
 import EmojiOneButtonPopup from "@/components/modals/EmojiOneButtonPopup";
@@ -42,7 +42,7 @@ export default function ModalTest() {
   }
 
   return (
-    <main className="min-h-screen px-5 py-10 text-white">
+    <main className="h-full px-5 py-10 text-white">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
         <section className="rounded-[32px] border border-white/15 bg-black/45 p-8 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-md">
           <p className="mb-3 text-sm font-semibold uppercase tracking-[0.24em] text-white/55">
@@ -58,7 +58,7 @@ export default function ModalTest() {
           </p>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <section className="grid grid-cols-5 gap-4">
           <button
             type="button"
             onClick={() => setIsOneButtonOpen(true)}

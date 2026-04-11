@@ -12,7 +12,7 @@ export default function Ribbon({
   const isBlackTheme = theme === "black";
 
   const content = useMemo(() => {
-    const repeated = Array.from({ length: 18 }, () => text).join("   * * *   ");
+    const repeated = Array.from({ length: 18 }, () => text).join("   ● ● ●   ");
 
     return `${text}   * * *   ${repeated}`;
   }, [text]);
@@ -32,22 +32,22 @@ export default function Ribbon({
 
   const ribbonTextStyle = {
     animation,
-    fontSize: "clamp(1.2rem, 1.2vw, 0.9rem)",
+    fontSize: "clamp(0.95rem, 1.03vw, 1.15rem)",
     lineHeight: 1,
-    padding: "0.4rem 1rem",
+    padding: "0.38rem 0.95rem",
     letterSpacing: "0.2em",
   } as const;
 
   return (
     <div
       aria-hidden
-      className={`pointer-events-none fixed left-1/2 z-[4] w-[260vmax] select-none overflow-hidden border ${bandClasses}`}
+      className={`pointer-events-none fixed left-1/2 z-[1] w-[280vmax] select-none overflow-hidden border-3 ${bandClasses}`}
       style={{
         top,
         transform,
         transformOrigin: "center",
-        paddingTop: "1rem",
-        paddingBottom: "1rem",
+        paddingTop: "0.82rem",
+        paddingBottom: "0.82rem",
         paddingLeft: "0.4rem",
         paddingRight: "0.4rem",
         boxShadow,

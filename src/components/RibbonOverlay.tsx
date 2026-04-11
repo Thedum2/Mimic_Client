@@ -10,5 +10,10 @@ export default function RibbonOverlay(props: RibbonOverlayProps) {
     return null
   }
 
-  return createPortal(<Ribbon {...props} />, document.body)
+  const target = document.getElementById('ribbon-layer')
+  if (!target) {
+    return null
+  }
+
+  return createPortal(<Ribbon {...props} />, target)
 }

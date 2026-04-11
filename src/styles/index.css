@@ -88,6 +88,12 @@ body {
   cursor: default;
 }
 
+body *,
+body *::before,
+body *::after {
+  cursor: default;
+}
+
 html,
 body {
   touch-action: none;
@@ -101,11 +107,18 @@ select {
   font-family: var(--font-body);
 }
 
-input,
+input:not([type="button"]):not([type="submit"]):not([type="reset"]):not(
+    [type="checkbox"]
+  ):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+    [type="file"]
+  ),
 textarea,
-select,
 [contenteditable="true"] {
   cursor: text;
+}
+
+select {
+  cursor: pointer;
 }
 
 button {
@@ -1127,6 +1140,7 @@ button:disabled * {
   background: #06090d;
   pointer-events: auto;
   touch-action: none;
+  cursor: default !important;
 }
 
 .unity-runtime__overlay {

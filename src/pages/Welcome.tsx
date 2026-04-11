@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import StepsBox from "./components/welcome/StepsBox";
@@ -245,7 +245,7 @@ export default function Welcome() {
   }
 
   return (
-    <main className="pointer-events-auto relative z-40 flex min-h-screen w-full flex-col items-center justify-center p-5">
+    <main className="pointer-events-auto relative h-full w-full p-5">
       {ribbonConfigs.map((config) => (
         <RibbonOverlay
           key={config.text}
@@ -257,138 +257,140 @@ export default function Welcome() {
         />
       ))}
 
-      <img
-        src={logoImage}
-        alt="Mimic logo"
-        className="mb-8 h-36 w-auto object-contain"
-      />
+      <div className="relative z-10 flex h-full w-full flex-col items-center justify-center">
+        <img
+          src={logoImage}
+          alt="Mimic logo"
+          className="mb-8 h-36 w-auto object-contain"
+        />
 
-      <div className="mx-auto flex w-full max-w-[90rem] flex-col items-center justify-center gap-5">
-        <section className="flex w-full items-center justify-center">
-          <div className="grid w-full max-w-[1150px] gap-4 lg:grid-cols-3">
-            <WelcomeActionCard
-              title="방 만들기"
-              description="새로운 방을 만들고 게임을 시작합니다."
-              buttonLabel="방 만들기"
-              buttonIcon={<Icon name="Sparkles" size={20} color="#ffde59" />}
-              buttonIconSize={20}
-              disabled={!isNicknameConfirmed}
-              onAction={openCreateRoomPopup}
-            />
+        <div className="mx-auto flex w-full max-w-[90rem] flex-col items-center justify-center gap-5">
+          <section className="flex w-full items-center justify-center">
+            <div className="grid w-full max-w-[1150px] grid-cols-3 gap-4">
+              <WelcomeActionCard
+                title="방 만들기"
+                description="새로운 방을 만들고 게임을 시작합니다."
+                buttonLabel="방 만들기"
+                buttonIcon={<Icon name="Sparkles" size={20} color="#ffde59" />}
+                buttonIconSize={20}
+                disabled={!isNicknameConfirmed}
+                onAction={openCreateRoomPopup}
+              />
 
-            <WelcomeActionCard
-              title="닉네임 설정"
-              description="로비에서 사용할 닉네임을 설정합니다."
-              buttonLabel={isNicknameConfirmed ? "닉네임 확인완료" : "닉네임 설정"}
-              buttonIcon={<Icon name="UserRound" size={20} color="#ffde59" />}
-              buttonIconSize={20}
-              disabled={isNicknameConfirmed || !nicknameValidation.isValid}
-              onAction={openNicknameConfirmPopup}
-              footer={
-                <div className="flex flex-col gap-2">
-                  <input
-                    value={nickname}
-                    disabled={isNicknameConfirmed}
-                    onChange={(event) => {
-                      setNickname(event.target.value.slice(0, 10));
-                      setNicknameConfirmed(false);
-                    }}
-                    placeholder="예: GHOST01"
-                    className={`w-full rounded-lg border px-3 py-2 text-base ${
-                      isNicknameConfirmed
-                        ? "cursor-not-allowed border-white/10 bg-black/25 text-white/55 placeholder:text-white/30"
-                        : "border-white/25 bg-black/50 text-white placeholder:text-white/50"
-                    }`}
-                  />
-                  <p
-                    className={
-                      isNicknameConfirmed
-                        ? "text-xs text-[#ffde59]"
-                        : nicknameValidation.isValid
+              <WelcomeActionCard
+                title="닉네임 설정"
+                description="로비에서 사용할 닉네임을 설정합니다."
+                buttonLabel={isNicknameConfirmed ? "닉네임 확인완료" : "닉네임 설정"}
+                buttonIcon={<Icon name="UserRound" size={20} color="#ffde59" />}
+                buttonIconSize={20}
+                disabled={isNicknameConfirmed || !nicknameValidation.isValid}
+                onAction={openNicknameConfirmPopup}
+                footer={
+                  <div className="flex flex-col gap-2">
+                    <input
+                      value={nickname}
+                      disabled={isNicknameConfirmed}
+                      onChange={(event) => {
+                        setNickname(event.target.value.slice(0, 10));
+                        setNicknameConfirmed(false);
+                      }}
+                      placeholder="예: GHOST01"
+                      className={`w-full rounded-lg border px-3 py-2 text-base ${
+                        isNicknameConfirmed
+                          ? "cursor-not-allowed border-white/10 bg-black/25 text-white/55 placeholder:text-white/30"
+                          : "border-white/25 bg-black/50 text-white placeholder:text-white/50"
+                      }`}
+                    />
+                    <p
+                      className={
+                        isNicknameConfirmed
+                          ? "text-xs text-[#ffde59]"
+                          : nicknameValidation.isValid
+                            ? "text-xs text-green-400"
+                            : "text-xs text-red-400"
+                      }
+                    >
+                      {isNicknameConfirmed
+                        ? "닉네임이 확정되었습니다."
+                        : nicknameValidation.message}
+                    </p>
+                  </div>
+                }
+              />
+
+              <WelcomeActionCard
+                title="방 참가"
+                description="코드를 입력하고 기존 방에 참가하세요."
+                buttonLabel="참가"
+                buttonIcon={<Icon name="LogIn" size={20} color="#ffde59" />}
+                buttonIconSize={20}
+                disabled={!joinCodeValidation.isValid || !isNicknameConfirmed}
+                onAction={() => {
+                  if (!isNicknameConfirmed || !joinCodeValidation.isValid) {
+                    createToast("error", joinCodeValidation.message);
+                    return;
+                  }
+
+                  enterLobby("join", joinCodeValidation.normalized);
+                }}
+                footer={
+                  <div className="flex flex-col gap-2">
+                    <input
+                      value={roomCode}
+                      onChange={(event) =>
+                        setRoomCode(normalizeInviteCode(event.target.value))
+                      }
+                      placeholder="예: ABC12"
+                      className={`w-full rounded-lg border px-3 py-2 text-base ${
+                        joinCodeValidation.isValid
+                          ? "border-white/25 bg-black/50 text-white placeholder:text-white/50"
+                          : "border-red-400/60 bg-black/50 text-white placeholder:text-white/35"
+                      }`}
+                    />
+                    <p
+                      className={
+                        joinCodeValidation.isValid
                           ? "text-xs text-green-400"
                           : "text-xs text-red-400"
-                    }
-                  >
-                    {isNicknameConfirmed
-                      ? "닉네임이 확정되었습니다."
-                      : nicknameValidation.message}
-                  </p>
-                </div>
-              }
-            />
-
-            <WelcomeActionCard
-              title="방 참가"
-              description="코드를 입력하고 기존 방에 참가하세요."
-              buttonLabel="참가"
-              buttonIcon={<Icon name="LogIn" size={20} color="#ffde59" />}
-              buttonIconSize={20}
-              disabled={!joinCodeValidation.isValid || !isNicknameConfirmed}
-              onAction={() => {
-                if (!isNicknameConfirmed || !joinCodeValidation.isValid) {
-                  createToast("error", joinCodeValidation.message);
-                  return;
+                      }
+                    >
+                      {joinCodeValidation.message}
+                    </p>
+                  </div>
                 }
+              />
+            </div>
+          </section>
 
-                enterLobby("join", joinCodeValidation.normalized);
-              }}
-              footer={
-                <div className="flex flex-col gap-2">
-                  <input
-                    value={roomCode}
-                    onChange={(event) =>
-                      setRoomCode(normalizeInviteCode(event.target.value))
-                    }
-                    placeholder="예: ABC12"
-                    className={`w-full rounded-lg border px-3 py-2 text-base ${
-                      joinCodeValidation.isValid
-                        ? "border-white/25 bg-black/50 text-white placeholder:text-white/50"
-                        : "border-red-400/60 bg-black/50 text-white placeholder:text-white/35"
-                    }`}
-                  />
-                  <p
-                    className={
-                      joinCodeValidation.isValid
-                        ? "text-xs text-green-400"
-                        : "text-xs text-red-400"
-                    }
-                  >
-                    {joinCodeValidation.message}
-                  </p>
-                </div>
-              }
-            />
-          </div>
-        </section>
+          <section className="w-full max-w-[1150px]">
+            <StepsBox title="Mimic 플레이 흐름" stepSets={stepSets} />
+          </section>
+        </div>
 
-        <section className="w-full max-w-[1150px]">
-          <StepsBox title="Mimic 플레이 흐름" stepSets={stepSets} />
-        </section>
+        <TwoButtonPopup
+          isOpen={isCreateRoomPopupOpen}
+          title="방 만들기"
+          subtitle="방을 만들면 초대 코드를 바로 확인할 수 있습니다."
+          cancelText="취소"
+          confirmText="생성"
+          onCancel={() => setIsCreateRoomPopupOpen(false)}
+          onConfirm={handleCreateRoomConfirm}
+          onClose={() => setIsCreateRoomPopupOpen(false)}
+        />
+
+        <TwoButtonPopup
+          isOpen={isNicknameConfirmPopupOpen}
+          title={nickname.trim() || "닉네임 설정"}
+          subtitle="입력한 닉네임으로 확정하시겠습니까?"
+          cancelText="취소"
+          confirmText="확인"
+          onCancel={() => setIsNicknameConfirmPopupOpen(false)}
+          onConfirm={confirmNickname}
+          onClose={() => setIsNicknameConfirmPopupOpen(false)}
+        />
+
+        <ImprovedToastContainer toasts={toasts} onClose={removeToast} />
       </div>
-
-      <TwoButtonPopup
-        isOpen={isCreateRoomPopupOpen}
-        title="방 만들기"
-        subtitle="방을 만들면 초대 코드를 바로 확인할 수 있습니다."
-        cancelText="취소"
-        confirmText="생성"
-        onCancel={() => setIsCreateRoomPopupOpen(false)}
-        onConfirm={handleCreateRoomConfirm}
-        onClose={() => setIsCreateRoomPopupOpen(false)}
-      />
-
-      <TwoButtonPopup
-        isOpen={isNicknameConfirmPopupOpen}
-        title={nickname.trim() || "닉네임 설정"}
-        subtitle="입력한 닉네임으로 확정하시겠습니까?"
-        cancelText="취소"
-        confirmText="확인"
-        onCancel={() => setIsNicknameConfirmPopupOpen(false)}
-        onConfirm={confirmNickname}
-        onClose={() => setIsNicknameConfirmPopupOpen(false)}
-      />
-
-      <ImprovedToastContainer toasts={toasts} onClose={removeToast} />
     </main>
   );
 }
