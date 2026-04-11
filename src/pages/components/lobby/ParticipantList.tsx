@@ -1,4 +1,5 @@
 import type { ParticipantListItem } from "@/types/domain/participant";
+import Icon from "@/components/icons/Icon";
 
 interface ParticipantListProps {
   title: string;
@@ -34,6 +35,12 @@ export function ParticipantList({
                 <p className="truncate text-sm font-semibold text-white">
                   {participant.name}
                 </p>
+                {participant.badgeLabel ? (
+                  <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] font-semibold text-amber-100">
+                    <Icon name="Crown" size={12} color="#fcd34d" />
+                    {participant.badgeLabel}
+                  </p>
+                ) : null}
               </div>
             </article>
           ))}

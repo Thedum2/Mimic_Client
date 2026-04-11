@@ -164,8 +164,6 @@ export function UnityWebGLView({ className }: UnityWebGLViewProps) {
           tabIndex={-1}
           ref={canvasRef}
           className="unity-canvas"
-          onPointerDown={() => canvasRef.current?.focus()}
-          onTouchStart={() => canvasRef.current?.focus()}
           onContextMenu={(event) => event.preventDefault()}
         />
       </div>

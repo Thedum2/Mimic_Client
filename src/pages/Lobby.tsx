@@ -20,8 +20,6 @@ type ToastItem = {
   duration?: number;
 };
 
-const MAX_PARTICIPANTS = 10;
-
 function createToastId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -38,6 +36,7 @@ export default function Lobby() {
 
   const sessionManager = SessionBridgeAdapter.getInstance().getManager();
   const session = useSessionStore(sessionManager);
+  const maxParticipants = Math.max(1, session.maxPlayerCount || 10);
 
   const [chatDraft, setChatDraft] = useState("");
   const chatScrollHostRef = useRef<HTMLDivElement | null>(null);
@@ -46,6 +45,47 @@ export default function Lobby() {
   const setUnityMode = useUnityLayoutStore((state) => state.setMode);
   const setLobbyRect = useUnityLayoutStore((state) => state.setLobbyRect);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  function releaseUnityKeyboardCapture() {
+    const canvas = document.getElementById("unity-webgl-canvas") as HTMLCanvasElement | null;
+    canvas?.blur();
+
+    const webGLInput = (window as unknown as { WebGLInput?: { captureAllKeyboardInput?: boolean } }).WebGLInput;
+    if (webGLInput && typeof webGLInput.captureAllKeyboardInput === "boolean") {
+      webGLInput.captureAllKeyboardInput = false;
+    }
+  }
+
+  useEffect(() => {
+    const disableCapture = () => {
+      releaseUnityKeyboardCapture();
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        return;
+      }
+
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+      ) {
+        disableCapture();
+      }
+    };
+
+    disableCapture();
+    const intervalId = window.setInterval(disableCapture, 350);
+    document.addEventListener("focusin", handleFocusIn, true);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("focusin", handleFocusIn, true);
+    };
+  }, []);
 
   useEffect(() => {
     const measureLobbyArea = () => {
@@ -92,6 +132,7 @@ export default function Lobby() {
         id: participant.playerId,
         name:
           (participant.isHost &&
+          participant.playerId === session.playerId &&
           nickname &&
           /^host$/i.test((participant.playerNickname || participant.playerId || "").trim()))
             ? nickname
@@ -105,7 +146,7 @@ export default function Lobby() {
         {
           id: session.playerId,
           name: nickname,
-          badgeLabel: "방장",
+          badgeLabel: session.lobbyEntryMode === "create" ? "방장" : undefined,
         },
       ];
     }
@@ -115,10 +156,60 @@ export default function Lobby() {
 
   const hostName = useMemo(() => {
     const host = session.participants.find((participant) => participant.isHost);
-    return host?.playerNickname || host?.playerId || participants[0]?.name || "방장";
-  }, [participants, session.participants]);
+    if (host) {
+      const rawHostName = (host.playerNickname || host.playerId || "").trim();
+      if (rawHostName && /^host$/i.test(rawHostName) === false) {
+        return rawHostName;
+      }
 
-  const roomTitle = useMemo(() => `${hostName}의 방`, [hostName]);
+      if (host.playerId === session.playerId && nickname) {
+        return nickname;
+      }
+
+      if (host.playerId) {
+        return host.playerId;
+      }
+    }
+
+    if (session.lobbyEntryMode === "create" && nickname) {
+      return nickname;
+    }
+
+    return null;
+  }, [nickname, session.lobbyEntryMode, session.participants, session.playerId]);
+
+  const roomTitle = useMemo(() => {
+    if (hostName) {
+      return `${hostName}의 방`;
+    }
+
+    if (inviteCode) {
+      return `${inviteCode} 방`;
+    }
+
+    return "방장의 방";
+  }, [hostName, inviteCode]);
+
+  const hostPlayerId = useMemo(() => {
+    const hostParticipant = session.participants.find((participant) => participant.isHost);
+    if (hostParticipant?.playerId) {
+      return hostParticipant.playerId;
+    }
+
+    if (session.lobbyEntryMode === "create") {
+      return session.playerId;
+    }
+
+    return null;
+  }, [session.lobbyEntryMode, session.participants, session.playerId]);
+
+  const isCurrentPlayerHost = useMemo(() => {
+    if (hostPlayerId) {
+      return hostPlayerId === session.playerId;
+    }
+
+    return session.lobbyEntryMode === "create";
+  }, [hostPlayerId, session.lobbyEntryMode, session.playerId]);
 
   useEffect(() => {
     const scrollHost = chatScrollHostRef.current;
@@ -208,9 +299,9 @@ export default function Lobby() {
   }
 
   return (
-    <main className="pointer-events-none relative h-screen overflow-hidden p-3">
+    <main className="pointer-events-none relative h-full overflow-hidden p-3">
       <div className="pointer-events-none mx-auto flex h-full w-full max-w-[1600px] flex-col gap-3 overflow-hidden">
-        <header className="pointer-events-auto flex shrink-0 flex-col gap-3 rounded-[24px] bg-black/35 px-5 py-4 backdrop-blur-md lg:flex-row lg:items-center lg:justify-between">
+        <header className="pointer-events-auto flex shrink-0 flex-row items-center justify-between gap-3 rounded-[24px] bg-black/35 px-5 py-4 backdrop-blur-md">
           <div>
             <p className="text-xs font-semibold tracking-[0.18em] text-white/45">로비</p>
             <h1 className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">
@@ -219,30 +310,30 @@ export default function Lobby() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <span className="flex items-center gap-2 rounded-full bg-white/8 px-4 py-2 text-sm font-semibold text-white/80">
-              <span>방 코드:</span>
-              <span className="text-red-400">[{inviteCode}]</span>
-              <button
-                type="button"
-                onClick={copyRoomCode}
-                className="inline-flex items-center rounded-full px-1.5 py-1 transition hover:bg-white/15"
-                aria-label="방 코드 복사"
-              >
-                <Icon name="Copy" size={16} color="#ffd37d" />
-              </button>
-            </span>
-            <span className="rounded-full bg-cyan-400/12 px-4 py-2 text-sm font-semibold text-cyan-100">
-              참가자 {participants.length}/{MAX_PARTICIPANTS}
+              <span className="flex items-center gap-2 rounded-full bg-white/8 px-4 py-2 text-base font-semibold text-white/80">
+                <span>방 코드:</span>
+                <span className="text-lg font-extrabold tracking-[0.08em] text-red-400">{inviteCode}</span>
+                <button
+                  type="button"
+                  onClick={copyRoomCode}
+                  className="inline-flex items-center rounded-full px-2 py-1.5 transition hover:bg-white/15"
+                  aria-label="방 코드 복사"
+                >
+                  <Icon name="Copy" size={18} color="#ffd37d" />
+                </button>
+              </span>
+              <span className="rounded-full bg-cyan-400/12 px-4 py-2 text-sm font-semibold text-cyan-100">
+              참가자 {participants.length}/{maxParticipants}
             </span>
           </div>
         </header>
 
-        <section className="pointer-events-none grid min-h-0 flex-1 gap-3 overflow-hidden xl:grid-cols-[minmax(220px,1fr)_minmax(0,3fr)_minmax(220px,1fr)]">
+        <section className="pointer-events-none grid min-h-0 flex-1 grid-cols-[minmax(220px,1fr)_minmax(0,3fr)_minmax(220px,1fr)] gap-3 overflow-hidden">
           <aside className="pointer-events-auto min-h-0 overflow-hidden">
             <ParticipantList
               title="참가자"
               participants={participants}
-              capacity={MAX_PARTICIPANTS}
+              capacity={maxParticipants}
             />
           </aside>
 
@@ -254,19 +345,28 @@ export default function Lobby() {
             </div>
 
             <div className="pointer-events-auto mx-3 mb-3 shrink-0 rounded-[20px] bg-white/[0.04] p-4">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
-                <RoundTimeSetting value={roundDuration} onChange={setRoundDuration} />
-                <StartGameButton
-                  label="매치 시작"
-                  onClick={() => {
-                    console.log("매치 시작");
-                  }}
-                />
-              </div>
+              {isCurrentPlayerHost ? (
+                <>
+                  <div className="grid grid-cols-[minmax(0,1fr)_220px] items-center gap-4">
+                    <RoundTimeSetting value={roundDuration} onChange={setRoundDuration} />
+                    <StartGameButton
+                      label="매치 시작"
+                      onClick={() => {
+                        console.log("매치 시작");
+                      }}
+                    />
+                  </div>
 
-              {session.createRoomError ? (
-                <p className="mt-3 text-xs text-red-300">{session.createRoomError}</p>
-              ) : null}
+                  {session.createRoomError ? (
+                    <p className="mt-3 text-xs text-red-300">{session.createRoomError}</p>
+                  ) : null}
+                </>
+              ) : (
+                <div className="rounded-2xl border border-white/12 bg-black/20 px-4 py-5 text-center">
+                  <p className="text-sm font-semibold text-white/90">호스트가 매치 설정 중입니다</p>
+                  <p className="mt-1 text-xs text-white/60">잠시 후 매치가 시작됩니다.</p>
+                </div>
+              )}
             </div>
           </section>
 
@@ -287,7 +387,16 @@ export default function Lobby() {
                       }`}
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <strong className="text-sm font-bold text-white">{message.author}</strong>
+                        <div className="flex items-center gap-2">
+                          <strong className="text-sm font-bold text-white">{message.author}</strong>
+                          {message.kind === "user" &&
+                          hostPlayerId &&
+                          message.authorPlayerId === hostPlayerId ? (
+                            <span className="rounded-full bg-cyan-400/18 px-2 py-0.5 text-[10px] font-extrabold tracking-[0.08em] text-cyan-100">
+                              방장
+                            </span>
+                          ) : null}
+                        </div>
                         <span className="text-xs text-white/45">{message.createdAt}</span>
                       </div>
                       <p className="mt-2 text-sm leading-6 text-white/78">{message.text}</p>
@@ -304,6 +413,10 @@ export default function Lobby() {
                     placeholder="채팅 메시지를 입력하세요..."
                     rows={3}
                     className="w-full resize-none bg-transparent text-sm leading-6 text-white placeholder:text-white/35"
+                    onFocus={releaseUnityKeyboardCapture}
+                    onMouseDown={releaseUnityKeyboardCapture}
+                    onPointerDown={releaseUnityKeyboardCapture}
+                    onKeyDownCapture={releaseUnityKeyboardCapture}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();

@@ -2,7 +2,7 @@ export type MessageType = 'REQ' | 'ACK' | 'NTY'
 export type MessageDirection = 'R2U' | 'U2R'
 export type MessageEndpoint = 'R' | 'U'
 
-export const BRIDGE_REQUEST_TIMEOUT_MS = 5_000
+export const BRIDGE_REQUEST_TIMEOUT_MS = 10_000
 
 export interface BridgeMessage<TData = unknown> {
   id: string
