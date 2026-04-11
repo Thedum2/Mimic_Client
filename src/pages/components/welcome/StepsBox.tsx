@@ -85,14 +85,14 @@ export default function StepsBox({
     startTimer()
   }
 
-  const cardGap = compact ? 'gap-2' : 'gap-3 md:gap-4'
+  const cardGap = compact ? 'gap-2' : 'gap-4'
   const contentPadding = compact ? 'pl-3 pr-3' : 'pl-5 pr-5'
   const panelHeight = compact ? 'h-[150px]' : 'h-[195px]'
   const panelPad = compact ? 'p-2' : 'p-3'
   const componentWidth = compact ? 'w-full' : 'w-full'
   const titleClass = compact ? 'text-lg' : 'text-xl'
   const descClass = compact ? 'text-xs' : 'text-sm'
-  const previewHeight = compact ? 'h-[86px] md:h-[96px]' : 'h-[120px] md:h-[140px]'
+  const previewHeight = compact ? 'h-[96px]' : 'h-[140px]'
   const iconPad = compact ? 'p-0.5' : 'p-1'
   const dotSize = compact ? 'h-3 w-3' : 'h-3 w-3'
 
@@ -114,8 +114,8 @@ export default function StepsBox({
             >
               <div className={`h-full w-full rounded-2xl ${contentPadding}`}>
                 <div className={`relative z-10 grid h-full grid-cols-12 ${cardGap}`}>
-                  <div className="col-span-12 flex min-h-0 flex-col justify-center md:col-span-7">
-                    <div className="flex items-start gap-3 md:gap-4">
+                  <div className="col-span-7 flex min-h-0 flex-col justify-center">
+                    <div className="flex items-start gap-4">
                       <div className="relative shrink-0">
                         <div
                           className={`rounded-xl ${iconPad} ring-1 ring-white/20`}
@@ -136,7 +136,7 @@ export default function StepsBox({
                     </div>
                   </div>
 
-                  <div className="col-span-12 flex min-h-0 flex-col justify-center md:col-span-5">
+                  <div className="col-span-5 flex min-h-0 flex-col justify-center">
                     <div className={`relative ${previewHeight} w-full overflow-hidden rounded-lg border border-white/15 bg-white/5`}>
                       {step.media ? (
                         <div className="h-full w-full">{step.media}</div>

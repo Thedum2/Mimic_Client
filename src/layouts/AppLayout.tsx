@@ -6,6 +6,7 @@ import Background from '@/components/Background'
 import { useUIStore } from '@/stores/uiStore'
 import { UnityWebGLView } from '@/unity/UnityWebGLView'
 import { useUnityLayoutStore } from '@/stores/unityLayoutStore'
+import FitStage from '@/util/FitStage'
 
 function buildUnityStageStyle(mode: 'hidden' | 'loading' | 'lobby', lobbyRect: { x: number; y: number; width: number; height: number } | null) {
   if (mode === 'loading') {
@@ -65,17 +66,22 @@ export default function AppLayout() {
   }, [setBackgroundVisible])
 
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden bg-black text-white">
-      {isBackgroundVisible && !isLoadingRoute && (
+    <div className="fixed inset-0 overflow-hidden text-white">
+      {isBackgroundVisible && !isLoadingRoute ? (
         <Background
           bgSrc={bgImage}
           bgPosition="center"
           overlayOpacity={0.35}
         />
-      )}
+      ) : null}
+      <div
+        id="ribbon-layer"
+        className="pointer-events-none fixed inset-0 z-[5] overflow-hidden"
+        aria-hidden
+      />
       {isUnityStageRoute ? (
         <div
-          className="fixed z-10"
+          className="fixed z-[25]"
           style={{
             left: typeof unityStyle.left === 'number' ? `${unityStyle.left}px` : unityStyle.left,
             top: typeof unityStyle.top === 'number' ? `${unityStyle.top}px` : unityStyle.top,
@@ -91,9 +97,15 @@ export default function AppLayout() {
           <UnityWebGLView className="h-full w-full" />
         </div>
       ) : null}
-      <div className="pointer-events-none relative z-30 min-h-screen w-full">
-        <Outlet />
-      </div>
+      <FitStage
+        mode="contain"
+        bleedRatio={0}
+        className="relative overflow-hidden text-white"
+      >
+        <div className="pointer-events-none relative z-30 h-full w-full overflow-hidden">
+          <Outlet />
+        </div>
+      </FitStage>
     </div>
   )
 }

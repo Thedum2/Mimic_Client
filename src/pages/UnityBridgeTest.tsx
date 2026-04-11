@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 
 import { BridgeManager } from '@/bridge/BridgeManager'
 import { BRIDGE_ROUTES } from '@/bridge/interface'
@@ -235,7 +235,7 @@ export default function UnityBridgeTest() {
   }
 
   return (
-    <main className="relative h-screen min-h-screen overflow-hidden bg-black p-2 text-white">
+    <main className="relative h-full overflow-hidden bg-black p-2 text-white">
       <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col gap-2">
         <header className="shrink-0 rounded-[16px] bg-black/35 px-4 py-3 backdrop-blur-md">
           <p className="text-[11px] font-semibold tracking-[0.18em] text-white/45">UNITY MATH SAMPLE TEST</p>
@@ -245,7 +245,7 @@ export default function UnityBridgeTest() {
           </div>
         </header>
 
-        <section className="grid min-h-0 flex-1 gap-2 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <section className="grid min-h-0 flex-1 grid-cols-[420px_minmax(0,1fr)] gap-2">
           <article className="rounded-[16px] bg-black/35 p-4 backdrop-blur-md">
             <h2 className="text-lg font-black">Math Test (3+2=5)</h2>
             <p className="mt-1 text-xs text-white/70">
