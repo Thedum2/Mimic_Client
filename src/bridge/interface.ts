@@ -70,7 +70,7 @@ export interface MatchManagerJoinRoomAck {
   result: boolean
   roomId: string
   joinedPlayerCount?: number
-  participants?: PlayerBase[]
+  participants: PlayerBase[]
   error?: BridgeError
 }
 

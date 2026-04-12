@@ -41,6 +41,8 @@ interface SessionSnapshot {
   playerName: string
   activeRoomId: string | null
   activeInviteCode: string | null
+  hostPlayerId: string | null
+  hostPlayerNickname: string | null
   lobbyEntryMode: LobbyEntryMode | null
   createRoomStatus: CreateRoomStatus
   createRoomError: string | null
@@ -72,7 +74,20 @@ interface LobbyChatSubmitAckData {
 }
 
 function createPlayerId() {
-  return `player_${Math.random().toString(36).slice(2, 10)}`
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0'))
+    return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
+  }
+
+  return `player_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`
 }
 
 function createInitialSnapshot(): SessionSnapshot {
@@ -81,6 +96,8 @@ function createInitialSnapshot(): SessionSnapshot {
     playerName: '',
     activeRoomId: null,
     activeInviteCode: null,
+    hostPlayerId: null,
+    hostPlayerNickname: null,
     lobbyEntryMode: null,
     createRoomStatus: 'idle',
     createRoomError: null,
@@ -115,6 +132,11 @@ function fallbackTime(): string {
   return parseTimestamp(new Date().toISOString())
 }
 
+function isHostPlaceholder(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase() ?? ''
+  return normalized === 'host'
+}
+
 function toUserFacingBridgeError(error: BridgeError | undefined, fallback: string) {
   if (!error?.code) {
     return error?.message ?? fallback
@@ -122,9 +144,9 @@ function toUserFacingBridgeError(error: BridgeError | undefined, fallback: strin
 
   switch (error.code) {
     case 'ROOM_NOT_FOUND':
-      return 'Room not found. Please check invite code and try again.'
+      return '존재하지 않는 방 코드입니다. 초대 코드를 다시 확인해 주세요.'
     case 'ROOM_FULL':
-      return 'Room is full. Please try another room.'
+      return '방 인원이 모두 찼습니다. 다른 방에 입장해 주세요.'
     case 'RUNTIME_NOT_READY':
       return 'Runtime is not ready yet. Please try again shortly.'
     case 'INVALID_ARGUMENT':
@@ -321,6 +343,8 @@ export class SessionManager {
       activeInviteCode:
         normalizedInviteCode.length > 0 ? normalizedInviteCode : null,
       activeRoomId: normalizedInviteCode.length > 0 ? normalizedInviteCode : null,
+      hostPlayerId: null,
+      hostPlayerNickname: null,
       createRoomStatus: 'idle',
       createRoomError: null,
       createRoomRequested: false,
@@ -344,6 +368,8 @@ export class SessionManager {
       activeInviteCode:
         normalizedInviteCode.length > 0 ? normalizedInviteCode : null,
       activeRoomId: normalizedInviteCode.length > 0 ? normalizedInviteCode : null,
+      hostPlayerId: null,
+      hostPlayerNickname: null,
       createRoomStatus: 'idle',
       createRoomError: null,
       createRoomRequested: false,
@@ -426,7 +452,7 @@ export class SessionManager {
 
       const nextParticipants =
         ackData.participants && ackData.participants.length > 0
-          ? ackData.participants
+          ? this.sanitizeParticipants(ackData.participants)
           : [
               {
                 playerId: this.snapshot.playerId,
@@ -434,15 +460,27 @@ export class SessionManager {
                 isHost: true,
               },
             ]
+      const resolvedLocalPlayerId = this.resolveLocalPlayerId(
+        nextParticipants,
+        this.snapshot.playerId,
+        this.snapshot.playerName,
+      )
+      const participantSnapshot = this.resolveParticipantSnapshot(nextParticipants, {
+        localPlayerId: resolvedLocalPlayerId ?? this.snapshot.playerId,
+        localPlayerName: this.snapshot.playerName,
+      })
 
       this.setSnapshot({
         ...this.snapshot,
+        playerId: resolvedLocalPlayerId ?? this.snapshot.playerId,
         activeRoomId: ackData.roomId ?? this.snapshot.activeRoomId,
         activeInviteCode: ackData.inviteCode ?? this.snapshot.activeInviteCode,
         createRoomStatus: 'ready',
         createRoomError: null,
         createRoomRequested: false,
-        participants: nextParticipants,
+        participants: participantSnapshot.participants,
+        hostPlayerId: participantSnapshot.hostPlayerId,
+        hostPlayerNickname: participantSnapshot.hostPlayerNickname,
       })
     } catch (error) {
       const bridgeError = parseBridgeErrorFromUnknown(error)
@@ -508,13 +546,37 @@ export class SessionManager {
         return
       }
 
+      if (!Array.isArray(ackData.participants) || ackData.participants.length === 0) {
+        this.setSnapshot({
+          ...this.snapshot,
+          createRoomStatus: 'error',
+          createRoomError:
+            'Join room response is invalid: participants must be provided.',
+          createRoomRequested: false,
+        })
+        return
+      }
+      const nextParticipants = this.sanitizeParticipants(ackData.participants)
+      const resolvedLocalPlayerId = this.resolveLocalPlayerId(
+        nextParticipants,
+        this.snapshot.playerId,
+        this.snapshot.playerName,
+      )
+      const participantSnapshot = this.resolveParticipantSnapshot(nextParticipants, {
+        localPlayerId: resolvedLocalPlayerId ?? this.snapshot.playerId,
+        localPlayerName: this.snapshot.playerName,
+      })
+
       this.setSnapshot({
         ...this.snapshot,
+        playerId: resolvedLocalPlayerId ?? this.snapshot.playerId,
         activeRoomId: ackData.roomId ?? this.snapshot.activeRoomId,
         createRoomStatus: 'ready',
         createRoomError: null,
         createRoomRequested: false,
-        participants: ackData.participants ?? this.snapshot.participants,
+        participants: participantSnapshot.participants,
+        hostPlayerId: participantSnapshot.hostPlayerId,
+        hostPlayerNickname: participantSnapshot.hostPlayerNickname,
       })
     } catch (error) {
       const bridgeError = parseBridgeErrorFromUnknown(error)
@@ -550,12 +612,21 @@ export class SessionManager {
     }
 
     const clientMessageId = `client_msg_${Date.now()}`
+    const selfParticipant = this.snapshot.participants.find(
+      (participant) => participant.playerId === this.snapshot.playerId,
+    )
+    const isHostSender = Boolean(
+      selfParticipant?.isHost ||
+      (this.snapshot.lobbyEntryMode === 'create' &&
+        this.snapshot.playerId.length > 0),
+    )
+
     const requestPayload: LobbyChatSubmitMessageRequest = {
       roomId: this.snapshot.activeRoomId,
       sender: {
         playerId: this.snapshot.playerId,
         playerNickname: this.snapshot.playerName,
-        isHost: false,
+        isHost: isHostSender,
       },
       message: {
         messageId: `msg_${Date.now()}`,
@@ -689,9 +760,13 @@ export class SessionManager {
       }
     }
 
+    const participantSnapshot = this.resolveParticipantSnapshot(nextParticipants)
+
     this.setSnapshot({
       ...this.snapshot,
-      participants: nextParticipants,
+      participants: participantSnapshot.participants,
+      hostPlayerId: participantSnapshot.hostPlayerId,
+      hostPlayerNickname: participantSnapshot.hostPlayerNickname,
       maxPlayerCount:
         typeof data.maxPlayerCount === 'number' && data.maxPlayerCount > 0
           ? data.maxPlayerCount
@@ -768,10 +843,13 @@ export class SessionManager {
       this.snapshot.participants,
       this.normalizeParticipant(next),
     )
+    const participantSnapshot = this.resolveParticipantSnapshot(nextParticipants)
 
     this.setSnapshot({
       ...this.snapshot,
-      participants: nextParticipants,
+      participants: participantSnapshot.participants,
+      hostPlayerId: participantSnapshot.hostPlayerId,
+      hostPlayerNickname: participantSnapshot.hostPlayerNickname,
     })
   }
 
@@ -841,6 +919,108 @@ export class SessionManager {
       playerId,
       playerNickname,
       isHost: Boolean(participant.isHost),
+    }
+  }
+
+  private resolveLocalPlayerId(
+    participants: PlayerBase[],
+    currentPlayerId: string,
+    currentPlayerName: string,
+  ) {
+    const normalizedPlayerId = currentPlayerId.trim()
+    if (
+      normalizedPlayerId &&
+      participants.some((participant) => participant.playerId === normalizedPlayerId)
+    ) {
+      return normalizedPlayerId
+    }
+
+    const normalizedPlayerName = currentPlayerName.trim().toLowerCase()
+    if (!normalizedPlayerName) {
+      return null
+    }
+
+    const matchedByName = participants.filter(
+      (participant) =>
+        participant.playerNickname.trim().toLowerCase() === normalizedPlayerName,
+    )
+
+    if (matchedByName.length === 1) {
+      return matchedByName[0].playerId
+    }
+
+    return null
+  }
+
+  private resolveParticipantSnapshot(
+    participants: PlayerBase[],
+    options?: {
+      localPlayerId?: string
+      localPlayerName?: string
+    },
+  ) {
+    const localPlayerId = options?.localPlayerId?.trim() || this.snapshot.playerId
+    const localPlayerName = options?.localPlayerName?.trim() || this.snapshot.playerName
+    const sanitizedParticipants = this.sanitizeParticipants(participants)
+
+    if (sanitizedParticipants.length === 0) {
+      return {
+        participants: sanitizedParticipants,
+        hostPlayerId: null,
+        hostPlayerNickname: null,
+      }
+    }
+
+    let hostIndex = sanitizedParticipants.findIndex((participant) => participant.isHost)
+
+    if (hostIndex < 0 && this.snapshot.hostPlayerId) {
+      hostIndex = sanitizedParticipants.findIndex(
+        (participant) => participant.playerId === this.snapshot.hostPlayerId,
+      )
+    }
+
+    if (hostIndex < 0) {
+      if (this.snapshot.lobbyEntryMode === 'join') {
+        const normalizedLocalName = localPlayerName.trim().toLowerCase()
+        const selfCandidateByName = normalizedLocalName
+          ? sanitizedParticipants.find(
+              (participant) =>
+                participant.playerNickname.trim().toLowerCase() === normalizedLocalName,
+            )
+          : undefined
+        hostIndex = sanitizedParticipants.findIndex(
+          (participant) =>
+            participant.playerId !== (selfCandidateByName?.playerId ?? localPlayerId),
+        )
+      } else {
+        hostIndex = sanitizedParticipants.findIndex(
+          (participant) => participant.playerId === localPlayerId,
+        )
+      }
+    }
+
+    if (hostIndex < 0) {
+      hostIndex = 0
+    }
+
+    const participantsWithHost = sanitizedParticipants.map((participant, index) => ({
+      ...participant,
+      isHost: index === hostIndex,
+    }))
+    const hostParticipant = participantsWithHost[hostIndex]
+    const hostPlayerId = hostParticipant?.playerId || null
+    const rawHostNickname = hostParticipant?.playerNickname?.trim() || ''
+    const hostPlayerNickname =
+      rawHostNickname && isHostPlaceholder(rawHostNickname) === false
+        ? rawHostNickname
+        : hostPlayerId === localPlayerId
+          ? localPlayerName || hostPlayerId
+          : hostPlayerId
+
+    return {
+      participants: participantsWithHost,
+      hostPlayerId,
+      hostPlayerNickname: hostPlayerNickname || null,
     }
   }
 
