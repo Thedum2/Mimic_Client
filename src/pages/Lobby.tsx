@@ -128,15 +128,24 @@ export default function Lobby() {
   const participants = useMemo<ParticipantListItem[]>(() => {
     if (session.participants.length > 0) {
       return session.participants.map((participant) => ({
-        // Unity placeholder("host") is replaced with local nickname for a readable host label.
         id: participant.playerId,
-        name:
-          (participant.isHost &&
-          participant.playerId === session.playerId &&
-          nickname &&
-          /^host$/i.test((participant.playerNickname || participant.playerId || "").trim()))
-            ? nickname
-            : (participant.playerNickname || participant.playerId),
+        name: (() => {
+          const rawName = (participant.playerNickname || participant.playerId || "").trim();
+          if (participant.playerId === session.playerId && nickname) {
+            return nickname;
+          }
+          if (
+            participant.isHost &&
+            session.hostPlayerNickname &&
+            session.hostPlayerId === participant.playerId
+          ) {
+            return session.hostPlayerNickname;
+          }
+          if (/^host$/i.test(rawName)) {
+            return participant.playerId || "HOST";
+          }
+          return rawName || participant.playerId;
+        })(),
         badgeLabel: participant.isHost ? "방장" : undefined,
       }));
     }
@@ -152,9 +161,13 @@ export default function Lobby() {
     }
 
     return [];
-  }, [nickname, session.participants, session.playerId]);
+  }, [nickname, session.hostPlayerId, session.hostPlayerNickname, session.participants, session.playerId]);
 
   const hostName = useMemo(() => {
+    if (session.hostPlayerNickname) {
+      return session.hostPlayerNickname;
+    }
+
     const host = session.participants.find((participant) => participant.isHost);
     if (host) {
       const rawHostName = (host.playerNickname || host.playerId || "").trim();
@@ -176,7 +189,7 @@ export default function Lobby() {
     }
 
     return null;
-  }, [nickname, session.lobbyEntryMode, session.participants, session.playerId]);
+  }, [nickname, session.hostPlayerNickname, session.lobbyEntryMode, session.participants, session.playerId]);
 
   const roomTitle = useMemo(() => {
     if (hostName) {
@@ -191,6 +204,10 @@ export default function Lobby() {
   }, [hostName, inviteCode]);
 
   const hostPlayerId = useMemo(() => {
+    if (session.hostPlayerId) {
+      return session.hostPlayerId;
+    }
+
     const hostParticipant = session.participants.find((participant) => participant.isHost);
     if (hostParticipant?.playerId) {
       return hostParticipant.playerId;
@@ -201,7 +218,7 @@ export default function Lobby() {
     }
 
     return null;
-  }, [session.lobbyEntryMode, session.participants, session.playerId]);
+  }, [session.hostPlayerId, session.lobbyEntryMode, session.participants, session.playerId]);
 
   const isCurrentPlayerHost = useMemo(() => {
     if (hostPlayerId) {
@@ -388,7 +405,45 @@ export default function Lobby() {
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <strong className="text-sm font-bold text-white">{message.author}</strong>
+                          <strong className="text-sm font-bold text-white">
+                            {(() => {
+                              if (!message.authorPlayerId) {
+                                return message.author;
+                              }
+
+                              const matchedParticipant = session.participants.find(
+                                (participant) => participant.playerId === message.authorPlayerId,
+                              );
+                              if (!matchedParticipant) {
+                                return message.author;
+                              }
+
+                              if (
+                                hostPlayerId &&
+                                matchedParticipant.playerId === hostPlayerId &&
+                                session.hostPlayerNickname
+                              ) {
+                                return session.hostPlayerNickname;
+                              }
+
+                              const candidate = (
+                                matchedParticipant.playerNickname ||
+                                matchedParticipant.playerId ||
+                                message.author
+                              ).trim();
+
+                              if (
+                                matchedParticipant.playerId === session.playerId &&
+                                nickname
+                              ) {
+                                return nickname;
+                              }
+
+                              return /^host$/i.test(candidate)
+                                ? matchedParticipant.playerId
+                                : candidate;
+                            })()}
+                          </strong>
                           {message.kind === "user" &&
                           hostPlayerId &&
                           message.authorPlayerId === hostPlayerId ? (
