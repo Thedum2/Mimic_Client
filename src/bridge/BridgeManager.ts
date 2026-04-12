@@ -5,7 +5,6 @@ import type { BridgeTransport } from '@/bridge/transport'
 import { isMessageDirection, isMessageType, parseRoute } from '@/bridge/route'
 
 interface PendingRequest {
-  route: string
   resolve: (message: BridgeMessage) => void
   reject: (error: Error) => void
   timeoutId: ReturnType<typeof setTimeout>
@@ -99,7 +98,6 @@ export class BridgeManager {
       }, timeoutMs)
 
       this.pendingRequests.set(message.id, {
-        route: message.route,
         resolve,
         reject,
         timeoutId,
@@ -188,12 +186,14 @@ export class BridgeManager {
       ? this.getEndpointsFromDirection(providedDirection)
       : this.getEndpointsFromDirection(this.getDefaultDirection(messageType))
 
+    if (typeof messageId !== 'string' || !this.isUuidString(messageId.trim())) {
+      this.pushLog('system', 'Invalid bridge message envelope', JSON.stringify(parsed))
+      return
+    }
+
     this.receiveMessage({
       ...(parsed as Omit<BridgeMessage, 'direction' | 'route' | 'from' | 'to' | 'type' | 'id' | 'ok' | 'timestamp'>),
-      id:
-        typeof messageId === 'string' && messageId.trim().length > 0
-          ? messageId.trim()
-          : this.createMessageId(),
+      id: messageId.trim(),
       direction: providedDirection,
       from: messageFrom ?? expectedEndpoints.from,
       to: messageTo ?? expectedEndpoints.to,
@@ -238,23 +238,15 @@ export class BridgeManager {
   }
 
   private handleAcknowledge(message: BridgeMessage) {
-    const pending =
-      this.pendingRequests.get(message.id) ??
-      this.findPendingByRoute(message.route)
+    const pending = this.pendingRequests.get(message.id)
 
     if (!pending) {
-      const handler = this.handlers.get(this.getHandlerKey(message.route))
-      if (!handler) {
-        this.pushLog('system', 'Unknown ACK (no pending request)', JSON.stringify(message))
-        return
-      }
-
-      handler.handleAcknowledge(message)
+      this.pushLog('system', 'Unknown ACK (no pending request)', JSON.stringify(message))
       return
     }
 
     clearTimeout(pending.timeoutId)
-    this.deletePendingRequest(pending)
+    this.pendingRequests.delete(message.id)
 
     if (message.ok) {
       pending.resolve(message)
@@ -450,23 +442,8 @@ export class BridgeManager {
     return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
   }
 
-  private findPendingByRoute(route: string) {
-    for (const pending of this.pendingRequests.values()) {
-      if (pending.route === route) {
-        return pending
-      }
-    }
-
-    return null
-  }
-
-  private deletePendingRequest(target: PendingRequest) {
-    for (const [id, pending] of this.pendingRequests.entries()) {
-      if (pending === target) {
-        this.pendingRequests.delete(id)
-        return
-      }
-    }
+  private isUuidString(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
   }
 
   private toWireMessage(message: BridgeMessage) {
